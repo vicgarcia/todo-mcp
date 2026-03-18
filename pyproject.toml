@@ -1,17 +1,19 @@
 [project]
 name = "todo-mcp"
 version = "2.0.0"
-description = "MCP server for Microsoft Todo"
+description = "MCP server for Microsoft Todo with direct Graph API access"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=2.0.0",
-    "pymstodo>=0.2.1",
-    "requests-oauthlib>=1.3.0",
+    "httpx>=0.27.0",
     "python-dateutil>=2.8.0",
 ]
 
 [project.scripts]
-todo-mcp = "todo_mcp:run"
+todo-mcp = "todo_mcp.server:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/todo_mcp"]
 
 [build-system]
 requires = ["hatchling"]

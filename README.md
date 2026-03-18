@@ -3,9 +3,9 @@ I use Microsoft Todo for personal task management. This MCP server connects Clau
 Once set up, you can make queries like:
 
 - "what tasks do I have due this week?"
-- "add a task to buy groceries to my personal list"
-- "mark the dentist appointment task as complete"
-- "show me all my high priority tasks"
+- "add a daily recurring task for standup at 9am"
+- "show me what I completed last week"
+- "create a subtask to buy ingredients for my dinner task"
 - "what lists do I have?"
 
 ## setup
@@ -80,7 +80,9 @@ the server authenticates at startup using your refresh token to obtain a live ac
 
 ## features
 
-this mcp server exposes tools to interact with the microsoft todo api.
+this mcp server exposes 16 tools organized into categories.
+
+### list management
 
 #### get_lists
 
@@ -93,6 +95,39 @@ retrieve all of your task lists
 **example usage in claude:**
 > "what task lists do I have?"
 
+#### create_list
+
+create a new task list
+
+**parameters:**
+- `name` (required): name for the new list
+
+**example usage in claude:**
+> "create a new list called 'vacation planning'"
+
+#### update_list
+
+rename a task list
+
+**parameters:**
+- `list_id` (required): id of the list to rename
+- `name` (required): new name for the list
+
+**example usage in claude:**
+> "rename my 'work' list to 'projects'"
+
+#### delete_list
+
+delete a task list permanently
+
+**parameters:**
+- `list_id` (required): id of the list to delete
+
+**example usage in claude:**
+> "delete the 'old projects' list"
+
+### task management
+
 #### get_tasks
 
 retrieve tasks from a specific list
@@ -104,11 +139,10 @@ retrieve tasks from a specific list
 
 **example usage in claude:**
 > "show me all my incomplete tasks in my work list"
-> "what tasks did I complete this week?"
 
 #### create_task
 
-create a new task in a list
+create a new task with optional recurrence
 
 **parameters:**
 - `title` (required): task title
@@ -116,9 +150,15 @@ create a new task in a list
 - `due_date` (optional): due date in yyyy-mm-dd format
 - `body_text` (optional): additional notes or description
 - `importance` (optional): `low`, `normal` (default), or `high`
+- `recurrence_type` (optional): `daily`, `weekly`, or `monthly`
+- `recurrence_interval` (optional): repeat every N periods (default: 1)
+- `recurrence_days_of_week` (optional): for weekly, e.g. `['monday', 'friday']`
+- `recurrence_day_of_month` (optional): for monthly, day 1-31
 
 **example usage in claude:**
 > "add a high priority task to call the dentist to my personal list, due friday"
+> "create a daily standup task that repeats every weekday"
+> "add a task to pay rent on the 1st of every month"
 
 #### update_task
 
@@ -132,9 +172,15 @@ update the properties of an existing task
 - `body_text` (optional): new notes or description
 - `importance` (optional): `low`, `normal`, or `high`
 - `status` (optional): `notStarted`, `inProgress`, `completed`, `waitingOnOthers`, or `deferred`
+- `recurrence_type` (optional): `daily`, `weekly`, or `monthly` to set/change recurrence
+- `recurrence_interval` (optional): repeat every N periods
+- `recurrence_days_of_week` (optional): for weekly recurrence
+- `recurrence_day_of_month` (optional): for monthly recurrence
+- `remove_recurrence` (optional): set True to remove recurrence
 
 **example usage in claude:**
 > "update the grocery task to be high importance and due tomorrow"
+> "make the standup task repeat every monday, wednesday, and friday"
 
 #### complete_task
 
@@ -158,6 +204,107 @@ permanently delete a task
 **example usage in claude:**
 > "delete the task about the old project kickoff"
 
+### cross-list views
+
+#### get_tasks_by_due_date_range
+
+get tasks due within a date range across ALL lists — great for daily/weekly planning
+
+**parameters:**
+- `start_date` (optional): start date in yyyy-mm-dd (default: today)
+- `end_date` (optional): end date in yyyy-mm-dd (default: start_date)
+- `include_overdue` (optional): include past-due tasks (default: True)
+- `include_no_due_date` (optional): include tasks without due dates (default: False)
+
+**returns:**
+- tasks grouped by category (overdue, in_range, no_due_date)
+- counts for each category
+
+**example usage in claude:**
+> "what do I have due today?"
+> "show me my tasks for this week"
+> "what's overdue?"
+
+#### get_tasks_by_completed_date_range
+
+get tasks completed within a date range across ALL lists — ideal for weekly reporting
+
+**parameters:**
+- `start_date` (required): start date in yyyy-mm-dd
+- `end_date` (optional): end date in yyyy-mm-dd (default: today)
+
+**returns:**
+- completed tasks grouped by list
+- daily completion counts
+- daily average
+
+**example usage in claude:**
+> "what did I complete last week?"
+> "summarize my completed tasks since monday"
+
+### subtasks (checklist items)
+
+#### get_subtasks
+
+get all subtasks for a task
+
+**parameters:**
+- `task_id` (required): id of the parent task
+- `list_id` (required): id of the task list
+
+**example usage in claude:**
+> "show me the subtasks for my dinner party task"
+
+#### create_subtask
+
+create a new subtask
+
+**parameters:**
+- `task_id` (required): id of the parent task
+- `list_id` (required): id of the task list
+- `name` (required): subtask description
+
+**example usage in claude:**
+> "add a subtask 'buy ingredients' to my dinner party task"
+
+#### update_subtask
+
+update a subtask
+
+**parameters:**
+- `item_id` (required): id of the subtask
+- `task_id` (required): id of the parent task
+- `list_id` (required): id of the task list
+- `name` (optional): new description
+- `is_checked` (optional): True/False
+
+**example usage in claude:**
+> "rename the first subtask to 'buy groceries'"
+
+#### complete_subtask
+
+mark a subtask as completed
+
+**parameters:**
+- `item_id` (required): id of the subtask
+- `task_id` (required): id of the parent task
+- `list_id` (required): id of the task list
+
+**example usage in claude:**
+> "check off the 'buy ingredients' subtask"
+
+#### delete_subtask
+
+delete a subtask permanently
+
+**parameters:**
+- `item_id` (required): id of the subtask
+- `task_id` (required): id of the parent task
+- `list_id` (required): id of the task list
+
+**example usage in claude:**
+> "remove the last subtask"
+
 ## development
 
 ```bash
@@ -165,10 +312,10 @@ git clone https://github.com/vicgarcia/todo-mcp
 cd todo-mcp
 
 # run the one-time auth flow to get your refresh token
-uv run todo_mcp.py --auth --client-id YOUR_ID --client-secret YOUR_SECRET
+uv run python -m todo_mcp.server --auth --client-id YOUR_ID --client-secret YOUR_SECRET
 
 # run the server directly
-uv run todo_mcp.py \
+uv run python -m todo_mcp.server \
   --client-id your-id \
   --client-secret your-secret \
   --refresh-token your-refresh-token
@@ -178,10 +325,17 @@ uv run todo_mcp.py \
 
 ```
 todo-mcp/
-├── todo_mcp.py          # single-file module (server + all logic)
-├── Dockerfile           # docker deployment
-├── pyproject.toml       # project metadata and dependencies
-└── README.md
+├── src/
+│   └── todo_mcp/
+│       ├── __init__.py       # package exports
+│       ├── server.py         # fastmcp server + 17 tools
+│       ├── graph_client.py   # microsoft graph api client
+│       └── schema.py         # dataclasses
+├── Dockerfile                # docker deployment
+├── pyproject.toml            # project metadata and dependencies
+├── README.md
+├── CLAUDE.md                 # session documentation
+└── CHANGELOG.md
 ```
 
 #### building docker image locally
@@ -195,3 +349,12 @@ to use the local build in claude desktop, replace `ghcr.io/vicgarcia/todo-mcp:la
 ## token lifecycle
 
 the refresh token you set up in step 2 is your long-lived credential. microsoft personal account refresh tokens have a 90-day sliding window — as long as you use the server regularly it stays valid indefinitely. if it ever expires (extended inactivity, password change, or app permission revocation), re-run the `--auth` step and update your `--refresh-token` value.
+
+## recurrence notes
+
+recurring tasks created via this server repeat indefinitely. this is due to a microsoft graph api limitation where end dates are silently ignored. if you need to stop a recurring task, complete or delete it, or edit it directly in the microsoft todo app.
+
+for flexible scheduling:
+- use `daily` with high intervals (e.g., `recurrence_interval=21` for every 3 weeks)
+- use `weekly` with specific days (e.g., `recurrence_days_of_week=['monday', 'wednesday', 'friday']`)
+- use `monthly` for fixed dates (e.g., `recurrence_day_of_month=15`)
