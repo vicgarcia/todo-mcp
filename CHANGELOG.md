@@ -8,7 +8,7 @@ major refactor with direct microsoft graph api access and expanded tool set.
   - `create_list`, `update_list`, `delete_list` - list management
   - `get_tasks_by_due_date_range` - cross-list due date filtering
   - `get_tasks_by_completed_date_range` - completed task history for reporting
-  - `get_subtasks`, `create_subtask`, `update_subtask`, `complete_subtask`, `delete_subtask` - checklist item management
+  - `get_steps`, `create_step`, `update_step`, `complete_step`, `delete_step` - checklist item management
 - recurrence support in `create_task` and `update_task` (daily, weekly, monthly patterns)
 - batch api support for efficient cross-list queries
 - CLAUDE.md session documentation

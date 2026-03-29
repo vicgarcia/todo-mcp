@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Microsoft Todo MCP Server - A Python MCP server connecting Claude Desktop to Microsoft Todo via direct Graph API access. Implements 17 tools for task management, list operations, subtasks (checklist items), recurrence, and cross-list date-based queries.
+Microsoft Todo MCP Server - A Python MCP server connecting Claude Desktop to Microsoft Todo via direct Graph API access. Implements 17 tools for task management, list operations, steps (checklist items), recurrence, and cross-list date-based queries.
 
 Modular structure in `src/todo_mcp/`, installable via `uv tool install`.
 
@@ -76,12 +76,12 @@ uv tool install git+https://github.com/vicgarcia/todo-mcp
 - `get_tasks_by_due_date_range` - Tasks due within date range across ALL lists
 - `get_tasks_by_completed_date_range` - Completed task history for reporting
 
-### Subtasks (Checklist Items)
-- `get_subtasks` - Get checklist items for a task
-- `create_subtask` - Create checklist item
-- `update_subtask` - Update checklist item
-- `complete_subtask` - Check item
-- `delete_subtask` - Delete checklist item
+### Steps (Checklist Items)
+- `get_steps` - Get checklist items for a task
+- `create_step` - Create checklist item
+- `update_step` - Update checklist item
+- `complete_step` - Check item
+- `delete_step` - Delete checklist item
 
 ## Implementation Notes
 
@@ -133,7 +133,7 @@ run()
 
 ### What We Built
 
-- **17 tools**: Full CRUD for lists, tasks, subtasks + date range queries
+- **17 tools**: Full CRUD for lists, tasks, steps + date range queries
 - **Recurrence support**: Daily, weekly, monthly patterns (noEnd only due to API bug)
 - **Batch API**: Cross-list queries use batch API for efficiency
 - **Server-side filtering**: Completed task history uses Graph API filters

@@ -5,7 +5,7 @@ Once set up, you can make queries like:
 - "what tasks do I have due this week?"
 - "add a daily recurring task for standup at 9am"
 - "show me what I completed last week"
-- "create a subtask to buy ingredients for my dinner task"
+- "create a step to buy ingredients for my dinner task"
 - "what lists do I have?"
 
 ## setup
@@ -242,68 +242,68 @@ get tasks completed within a date range across ALL lists — ideal for weekly re
 > "what did I complete last week?"
 > "summarize my completed tasks since monday"
 
-### subtasks (checklist items)
+### steps (checklist items)
 
-#### get_subtasks
+#### get_steps
 
-get all subtasks for a task
+get all steps for a task
 
 **parameters:**
 - `task_id` (required): id of the parent task
 - `list_id` (required): id of the task list
 
 **example usage in claude:**
-> "show me the subtasks for my dinner party task"
+> "show me the steps for my dinner party task"
 
-#### create_subtask
+#### create_step
 
-create a new subtask
+create a new step
 
 **parameters:**
 - `task_id` (required): id of the parent task
 - `list_id` (required): id of the task list
-- `name` (required): subtask description
+- `name` (required): step description
 
 **example usage in claude:**
-> "add a subtask 'buy ingredients' to my dinner party task"
+> "add a step 'buy ingredients' to my dinner party task"
 
-#### update_subtask
+#### update_step
 
-update a subtask
+update a step
 
 **parameters:**
-- `item_id` (required): id of the subtask
+- `item_id` (required): id of the step
 - `task_id` (required): id of the parent task
 - `list_id` (required): id of the task list
 - `name` (optional): new description
 - `is_checked` (optional): True/False
 
 **example usage in claude:**
-> "rename the first subtask to 'buy groceries'"
+> "rename the first step to 'buy groceries'"
 
-#### complete_subtask
+#### complete_step
 
-mark a subtask as completed
+mark a step as completed
 
 **parameters:**
-- `item_id` (required): id of the subtask
+- `item_id` (required): id of the step
 - `task_id` (required): id of the parent task
 - `list_id` (required): id of the task list
 
 **example usage in claude:**
-> "check off the 'buy ingredients' subtask"
+> "check off the 'buy ingredients' step"
 
-#### delete_subtask
+#### delete_step
 
-delete a subtask permanently
+delete a step permanently
 
 **parameters:**
-- `item_id` (required): id of the subtask
+- `item_id` (required): id of the step
 - `task_id` (required): id of the parent task
 - `list_id` (required): id of the task list
 
 **example usage in claude:**
-> "remove the last subtask"
+> "remove the last step"
 
 ## development
 

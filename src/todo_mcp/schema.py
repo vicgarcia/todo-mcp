@@ -256,7 +256,7 @@ class TodoTask:
 
 @dataclass
 class ChecklistItem:
-    '''subtask (checklist item) within a task.'''
+    '''step (checklist item) within a task.'''
     id: str
     display_name: str
     is_checked: bool

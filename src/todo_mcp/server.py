@@ -792,20 +792,20 @@ def get_tasks_by_completed_date_range(
 
 
 # -----------------------------------------------------------------------------
-# subtask (checklist item) tools
+# step (checklist item) tools
 # -----------------------------------------------------------------------------
 
 @mcp.tool
-def get_subtasks(task_id: str, list_id: str) -> Dict[str, Any]:
+def get_steps(task_id: str, list_id: str) -> Dict[str, Any]:
     '''
-    get all subtasks (checklist items) for a task.
+    get all steps (checklist items) for a task.
 
     args:
         task_id: the id of the parent task (required)
         list_id: the id of the task list (required)
 
     returns:
-        dictionary containing the subtasks
+        dictionary containing the steps
     '''
     try:
         if not task_id or not task_id.strip():
@@ -817,27 +817,27 @@ def get_subtasks(task_id: str, list_id: str) -> Dict[str, Any]:
             items = client.get_checklist_items(list_id.strip(), task_id.strip())
             return format_success({
                 'count': len(items),
-                'subtasks': [item.to_dict() for item in items],
+                'steps': [item.to_dict() for item in items],
                 'task_id': task_id,
                 'list_id': list_id,
             })
     except GraphAPIError as e:
-        logger.error(f'error getting subtasks: {e}')
+        logger.error(f'error getting steps: {e}')
         return format_error(e)
 
 
 @mcp.tool
-def create_subtask(task_id: str, list_id: str, name: str) -> Dict[str, Any]:
+def create_step(task_id: str, list_id: str, name: str) -> Dict[str, Any]:
     '''
-    create a new subtask (checklist item) for a task.
+    create a new step (checklist item) for a task.
 
     args:
         task_id: the id of the parent task (required)
         list_id: the id of the task list (required)
-        name: the subtask name/description (required)
+        name: the step name/description (required)
 
     returns:
-        dictionary containing the created subtask
+        dictionary containing the created step
     '''
     try:
         if not task_id or not task_id.strip():
@@ -849,17 +849,17 @@ def create_subtask(task_id: str, list_id: str, name: str) -> Dict[str, Any]:
 
         with get_client() as client:
             item = client.create_checklist_item(list_id.strip(), task_id.strip(), name.strip())
-            logger.info(f"created subtask '{item.display_name}' for task {task_id}")
+            logger.info(f"created step '{item.display_name}' for task {task_id}")
             return format_success({
-                'subtask': item.to_dict(),
-            }, message='subtask created successfully')
+                'step': item.to_dict(),
+            }, message='step created successfully')
     except GraphAPIError as e:
-        logger.error(f'error creating subtask: {e}')
+        logger.error(f'error creating step: {e}')
         return format_error(e)
 
 
 @mcp.tool
-def update_subtask(
+def update_step(
     item_id: str,
     task_id: str,
     list_id: str,
@@ -867,17 +867,17 @@ def update_subtask(
     is_checked: Optional[bool] = None,
 ) -> Dict[str, Any]:
     '''
-    update a subtask (checklist item).
+    update a step (checklist item).
 
     args:
-        item_id: the id of the subtask (required)
+        item_id: the id of the step (required)
         task_id: the id of the parent task (required)
         list_id: the id of the task list (required)
-        name: new name for the subtask (optional)
+        name: new name for the step (optional)
         is_checked: True to mark as completed, False to uncheck (optional)
 
     returns:
-        dictionary containing the updated subtask
+        dictionary containing the updated step
     '''
     try:
         if not item_id or not item_id.strip():
@@ -897,27 +897,27 @@ def update_subtask(
                 display_name=name.strip() if name else None,
                 is_checked=is_checked,
             )
-            logger.info(f'updated subtask {item_id}')
+            logger.info(f'updated step {item_id}')
             return format_success({
-                'subtask': item.to_dict(),
+                'step': item.to_dict(),
             })
     except GraphAPIError as e:
-        logger.error(f'error updating subtask {item_id}: {e}')
+        logger.error(f'error updating step {item_id}: {e}')
         return format_error(e)
 
 
 @mcp.tool
-def complete_subtask(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
+def complete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
     '''
-    mark a subtask (checklist item) as completed.
+    mark a step (checklist item) as completed.
 
     args:
-        item_id: the id of the subtask (required)
+        item_id: the id of the step (required)
         task_id: the id of the parent task (required)
         list_id: the id of the task list (required)
 
     returns:
-        dictionary containing the completed subtask
+        dictionary containing the completed step
     '''
     try:
         if not item_id or not item_id.strip():
@@ -929,22 +929,22 @@ def complete_subtask(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]
 
         with get_client() as client:
             item = client.complete_checklist_item(list_id.strip(), task_id.strip(), item_id.strip())
-            logger.info(f'completed subtask {item_id}')
+            logger.info(f'completed step {item_id}')
             return format_success({
-                'subtask': item.to_dict(),
-            }, message='subtask marked as completed')
+                'step': item.to_dict(),
+            }, message='step marked as completed')
     except GraphAPIError as e:
-        logger.error(f'error completing subtask {item_id}: {e}')
+        logger.error(f'error completing step {item_id}: {e}')
         return format_error(e)
 
 
 @mcp.tool
-def delete_subtask(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
+def delete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
     '''
-    delete a subtask (checklist item) permanently.
+    delete a step (checklist item) permanently.
 
     args:
-        item_id: the id of the subtask (required)
+        item_id: the id of the step (required)
         task_id: the id of the parent task (required)
         list_id: the id of the task list (required)
 
@@ -961,12 +961,12 @@ def delete_subtask(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
 
         with get_client() as client:
             client.delete_checklist_item(list_id.strip(), task_id.strip(), item_id.strip())
-            logger.info(f'deleted subtask {item_id}')
+            logger.info(f'deleted step {item_id}')
             return format_success({
                 'item_id': item_id,
-            }, message='subtask deleted successfully')
+            }, message='step deleted successfully')
     except GraphAPIError as e:
-        logger.error(f'error deleting subtask {item_id}: {e}')
+        logger.error(f'error deleting step {item_id}: {e}')
         return format_error(e)
 
 

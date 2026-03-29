@@ -350,11 +350,11 @@ class GraphClient:
         self._delete(f'/me/todo/lists/{list_id}/tasks/{task_id}')
 
     # =========================================================================
-    # checklist item (subtask) operations
+    # checklist item (step) operations
     # =========================================================================
 
     def get_checklist_items(self, list_id: str, task_id: str) -> List[ChecklistItem]:
-        '''get all checklist items (subtasks) for a task.'''
+        '''get all checklist items (steps) for a task.'''
         data = self._get(f'/me/todo/lists/{list_id}/tasks/{task_id}/checklistItems')
         return [ChecklistItem.from_api(item) for item in data.get('value', [])]
 
@@ -364,7 +364,7 @@ class GraphClient:
         task_id: str,
         display_name: str
     ) -> ChecklistItem:
-        '''create a new checklist item (subtask).'''
+        '''create a new checklist item (step).'''
         data = self._post(
             f'/me/todo/lists/{list_id}/tasks/{task_id}/checklistItems',
             {'displayName': display_name}
@@ -379,7 +379,7 @@ class GraphClient:
         display_name: Optional[str] = None,
         is_checked: Optional[bool] = None,
     ) -> ChecklistItem:
-        '''update a checklist item (subtask).'''
+        '''update a checklist item (step).'''
         payload: Dict[str, Any] = {}
         if display_name is not None:
             payload['displayName'] = display_name
@@ -410,7 +410,7 @@ class GraphClient:
         task_id: str,
         item_id: str
     ) -> None:
-        '''delete a checklist item (subtask).'''
+        '''delete a checklist item (step).'''
         self._delete(f'/me/todo/lists/{list_id}/tasks/{task_id}/checklistItems/{item_id}')
 
     # =========================================================================
