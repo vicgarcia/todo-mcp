@@ -74,6 +74,7 @@ uv tool install git+https://github.com/vicgarcia/todo-mcp
 
 ### Cross-List Views
 - `get_tasks_by_due_date_range` - Tasks due within date range across ALL lists
+- `get_tasks_due_today` - Open tasks due today (local day) in the given lists
 - `get_tasks_by_completed_date_range` - Completed task history for reporting
 
 ### Steps (Checklist Items)

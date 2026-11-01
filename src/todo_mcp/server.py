@@ -646,7 +646,8 @@ def get_tasks_by_due_date_range(
         get_tasks_by_due_date_range(start_date='2026-03-17', end_date='2026-03-23') -> this week
     '''
     try:
-        today = datetime.now(timezone.utc).date()
+        # the machine's local day, so this stays right in the evening when utc has moved on
+        today = date.today()
 
         if start_date:
             try:
@@ -668,7 +669,7 @@ def get_tasks_by_due_date_range(
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            all_tasks = client.get_all_tasks()
+            all_tasks = client.get_all_tasks(filter_="status ne 'completed'")
 
         overdue_tasks: List[Dict] = []
         in_range_tasks: List[Dict] = []
@@ -710,6 +711,43 @@ def get_tasks_by_due_date_range(
         return format_success(result)
     except GraphAPIError as e:
         logger.error(f'error getting tasks by due date range: {e}')
+        return format_error(e)
+
+
+@mcp.tool
+def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
+    '''
+    get open tasks due today from specific lists. overdue tasks are not included.
+
+    args:
+        list_ids: the ids of the lists to check (required)
+
+    returns:
+        dictionary with today's date, the count, and the tasks with their list names
+    '''
+    try:
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
+        # the machine's local day, so this stays right in the evening when utc has moved on
+        today = date.today()
+
+        with get_client() as client:
+            names = {lst.id: lst.display_name for lst in client.get_lists()}
+            tasks = []
+            for list_id in list_ids:
+                for task in client.get_open_tasks(list_id):
+                    if task.due_datetime and task.due_datetime.to_date() == today:
+                        task.list_name = names.get(list_id)
+                        tasks.append(task.to_dict())
+
+        return format_success({
+            'date': today.isoformat(),
+            'count': len(tasks),
+            'tasks': tasks,
+        })
+    except GraphAPIError as e:
+        logger.error(f'error getting tasks due today: {e}')
         return format_error(e)
 
 

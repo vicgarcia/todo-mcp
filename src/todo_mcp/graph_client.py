@@ -47,6 +47,8 @@ class GraphClient:
 
     TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
     GRAPH_URL = 'https://graph.microsoft.com/v1.0'
+    MAX_RETRIES = 3
+    MAX_RETRY_DELAY = 10.0  # seconds; claude is waiting on the call
     SCOPE = 'openid offline_access Tasks.ReadWrite'
 
     def __init__(self, client_id: str, client_secret: str, token: Dict[str, Any]):
@@ -126,13 +128,20 @@ class GraphClient:
     ) -> Dict[str, Any]:
         '''make a request to graph api.'''
         url = f'{self.GRAPH_URL}{path}'
-        response = self._http.request(
-            method,
-            url,
-            headers=self._headers(),
-            json=json,
-            params=params
-        )
+        for attempt in range(self.MAX_RETRIES + 1):
+            response = self._http.request(
+                method,
+                url,
+                headers=self._headers(),
+                json=json,
+                params=params
+            )
+            if response.status_code != 429 or attempt == self.MAX_RETRIES:
+                break
+            # graph limits how many requests can run against a mailbox at once
+            delay = min(float(response.headers.get('Retry-After', 1)), self.MAX_RETRY_DELAY)
+            logger.warning(f'rate limited by graph, retrying in {delay}s')
+            time.sleep(delay)
 
         if response.status_code >= 400:
             try:
@@ -247,6 +256,26 @@ class GraphClient:
 
         data = self._get(f'/me/todo/lists/{list_id}/tasks', params=params or None)
         return [TodoTask.from_api(item, list_id) for item in data.get('value', [])]
+
+    def get_open_tasks(self, list_id: str) -> List[TodoTask]:
+        '''get every open task in a list.'''
+        return self._get_all_pages(list_id, "status ne 'completed'")
+
+    def _get_all_pages(self, list_id: str, filter_: Optional[str] = None) -> List[TodoTask]:
+        '''get every task in a list matching a filter, following graph's paging.'''
+        tasks: List[TodoTask] = []
+        path: Optional[str] = f'/me/todo/lists/{list_id}/tasks'
+        params: Optional[Dict[str, Any]] = {'$filter': filter_} if filter_ else None
+
+        while path:
+            data = self._get(path, params=params)
+            tasks.extend(TodoTask.from_api(item, list_id) for item in data.get('value', []))
+            next_link = data.get('@odata.nextLink')
+            # the next link is a full url that already carries the filter
+            path = next_link.removeprefix(self.GRAPH_URL) if next_link else None
+            params = None
+
+        return tasks
 
     def get_task(self, list_id: str, task_id: str) -> TodoTask:
         '''get a specific task.'''
@@ -419,39 +448,19 @@ class GraphClient:
 
     def get_all_tasks(self, filter_: Optional[str] = None) -> List[TodoTask]:
         '''
-        get tasks from ALL lists using batch api.
+        get tasks from ALL lists, raising if any list can't be read.
+
+        lists are read one at a time: graph runs batch requests concurrently and
+        answers most of them with 429 when there are more than a few lists.
 
         args:
             filter_: OData filter to apply to each list query
         '''
-        lists = self.get_lists()
-        if not lists:
-            return []
-
-        # build batch request for all lists
-        requests = []
-        for i, lst in enumerate(lists):
-            url = f'/me/todo/lists/{lst.id}/tasks'
-            if filter_:
-                url += f'?$filter={filter_}'
-            requests.append({'id': str(i), 'method': 'GET', 'url': url})
-
-        # execute in batches of 20
         all_tasks: List[TodoTask] = []
-        list_map = {str(i): lst for i, lst in enumerate(lists)}
-
-        for batch_start in range(0, len(requests), 20):
-            batch = requests[batch_start:batch_start + 20]
-            responses = self.batch(batch)
-
-            for resp in responses:
-                if resp.get('status') == 200:
-                    lst = list_map[resp['id']]
-                    tasks = resp.get('body', {}).get('value', [])
-                    for task_data in tasks:
-                        task = TodoTask.from_api(task_data, lst.id)
-                        task.list_name = lst.display_name
-                        all_tasks.append(task)
+        for lst in self.get_lists():
+            for task in self._get_all_pages(lst.id, filter_):
+                task.list_name = lst.display_name
+                all_tasks.append(task)
 
         return all_tasks
 

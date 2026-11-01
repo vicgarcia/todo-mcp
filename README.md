@@ -225,6 +225,16 @@ get tasks due within a date range across ALL lists — great for daily/weekly pl
 > "show me my tasks for this week"
 > "what's overdue?"
 
+#### get_tasks_due_today
+
+get open tasks due today from specific lists. "today" is the machine's local day, and overdue tasks are not included
+
+**parameters:**
+- `list_ids` (required): the ids of the lists to check
+
+**example usage in claude:**
+> "what's due today on my chores and health lists?"
+
 #### get_tasks_by_completed_date_range
 
 get tasks completed within a date range across ALL lists — ideal for weekly reporting
