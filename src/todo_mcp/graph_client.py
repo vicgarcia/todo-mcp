@@ -421,31 +421,14 @@ class GraphClient:
     # cross-list queries
     # =========================================================================
 
-    def get_all_tasks(self, filter_: Optional[str] = None) -> List[TodoTask]:
-        '''
-        get tasks from ALL lists, raising if any list can't be read.
-
-        lists are read one at a time: graph runs batch requests concurrently and
-        answers most of them with 429 when there are more than a few lists.
-
-        args:
-            filter_: OData filter to apply to each list query
-        '''
-        all_tasks: List[TodoTask] = []
-        for lst in self.get_lists():
-            for task in self._get_all_pages(lst.id, filter_):
-                task.list_name = lst.display_name
-                all_tasks.append(task)
-
-        return all_tasks
-
     def get_tasks_by_completed_range(
         self,
+        list_id: str,
         start_date: date,
         end_date: date,
     ) -> List[TodoTask]:
         '''
-        get completed tasks within a date range from ALL lists.
+        get completed tasks within a date range from a list.
         uses server-side filtering for efficiency.
         '''
         filter_str = (
@@ -453,32 +436,4 @@ class GraphClient:
             f"completedDateTime/dateTime ge '{start_date.isoformat()}' and "
             f"completedDateTime/dateTime le '{end_date.isoformat()}'"
         )
-        return self.get_all_tasks(filter_=filter_str)
-
-    def get_tasks_by_due_range(
-        self,
-        start_date: date,
-        end_date: date,
-        include_no_due_date: bool = False,
-    ) -> List[TodoTask]:
-        '''
-        get tasks due within a date range from ALL lists.
-
-        note: dueDateTime filtering requires client-side filtering as
-        the server-side filter for due dates is unreliable.
-        '''
-        all_tasks = self.get_all_tasks()
-        result: List[TodoTask] = []
-
-        for task in all_tasks:
-            if task.status == 'completed':
-                continue
-
-            if task.due_datetime:
-                due_date = task.due_datetime.to_date()
-                if due_date and start_date <= due_date <= end_date:
-                    result.append(task)
-            elif include_no_due_date:
-                result.append(task)
-
-        return result
+        return self._get_all_pages(list_id, filter_str)

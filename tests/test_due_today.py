@@ -100,13 +100,19 @@ def test_empty_list_ids_is_an_error(graph):
     assert server.get_tasks_due_today([])['success'] is False
 
 
-def test_due_range_covers_every_list_and_page(graph):
+def test_due_range_covers_only_the_given_lists_and_every_page(graph):
     today = date.today()
-    result = server.get_tasks_by_due_date_range(start_date=today.isoformat(), include_overdue=True, include_no_due_date=True)
-    assert [t['title'] for t in result['tasks']] == ['today a', 'today page two', 'today b', 'today other list']
+    result = server.get_tasks_by_due_date_range(['a', 'b'], start_date=today.isoformat(), include_overdue=True, include_no_due_date=True)
+    assert [t['title'] for t in result['tasks']] == ['today a', 'today page two', 'today b']
+    assert [t['list_name'] for t in result['tasks']] == ['Chores', 'Chores', 'Health']
     assert [t['title'] for t in result['overdue']] == ['overdue']
     assert [t['title'] for t in result['no_due_date']] == ['no date']
     assert graph.calls[0][1] == {'$filter': "status ne 'completed'"}
+    assert '/me/todo/lists/c/tasks' not in [path for path, _ in graph.calls]
+
+
+def test_due_range_with_empty_list_ids_is_an_error(graph):
+    assert server.get_tasks_by_due_date_range([])['success'] is False
 
 
 def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
@@ -118,7 +124,7 @@ def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
             return tomorrow
 
     monkeypatch.setattr(server, 'date', Tomorrow)
-    result = server.get_tasks_by_due_date_range()
+    result = server.get_tasks_by_due_date_range(['a'])
     assert result['start_date'] == tomorrow.isoformat()
     assert [t['title'] for t in result['tasks']] == ['tomorrow']
 
@@ -126,14 +132,14 @@ def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
 def test_overdue_means_before_today_not_before_the_range(graph):
     # 'overdue' was due yesterday, 'today a' is before this future range but not late
     start = date.today() + timedelta(days=1)
-    result = server.get_tasks_by_due_date_range(start_date=start.isoformat())
+    result = server.get_tasks_by_due_date_range(['a'], start_date=start.isoformat())
     assert [t['title'] for t in result['tasks']] == ['tomorrow']
     assert [t['title'] for t in result['overdue']] == ['overdue']
 
 
 def test_past_range_keeps_its_tasks_in_range(graph):
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-    result = server.get_tasks_by_due_date_range(start_date=yesterday, include_overdue=True)
+    result = server.get_tasks_by_due_date_range(['a'], start_date=yesterday, include_overdue=True)
     assert [t['title'] for t in result['tasks']] == ['overdue']
     assert 'overdue' not in result
 
@@ -147,9 +153,23 @@ def test_due_range_reports_a_list_it_cannot_read(graph):
         return graph.pages[path]
 
     graph._get = failing_get
-    result = server.get_tasks_by_due_date_range()
+    result = server.get_tasks_by_due_date_range(['a', 'b'])
     assert result['success'] is False
     assert '429' in result['error'] or 'slow down' in result['error']
+
+
+def test_completed_range_covers_only_the_given_lists(graph):
+    result = server.get_tasks_by_completed_date_range(['a', 'b'], start_date=date.today().isoformat())
+    assert result['success'] is True
+    assert result['end_date'] == date.today().isoformat()
+    assert sorted(entry['list_name'] for entry in result['by_list']) == ['Chores', 'Health']
+    paths = [path for path, _ in graph.calls]
+    assert '/me/todo/lists/c/tasks' not in paths
+    assert "status eq 'completed'" in graph.calls[0][1]['$filter']
+
+
+def test_completed_range_with_empty_list_ids_is_an_error(graph):
+    assert server.get_tasks_by_completed_date_range([], start_date='2026-01-01')['success'] is False
 
 
 class FakeResponse:

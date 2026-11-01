@@ -208,9 +208,10 @@ permanently delete a task
 
 #### get_tasks_by_due_date_range
 
-get tasks due within a date range across ALL lists — great for daily/weekly planning
+get open tasks due within a date range from specific lists — great for daily/weekly planning
 
 **parameters:**
+- `list_ids` (required): the ids of the lists to check
 - `start_date` (optional): start date in yyyy-mm-dd (default: today)
 - `end_date` (optional): end date in yyyy-mm-dd (default: start_date)
 - `include_overdue` (optional): also return tasks due before today (default: True)
@@ -221,9 +222,8 @@ get tasks due within a date range across ALL lists — great for daily/weekly pl
 - counts for each category
 
 **example usage in claude:**
-> "what do I have due today?"
-> "show me my tasks for this week"
-> "what's overdue?"
+> "what's due this week on my chores list?"
+> "what's overdue on my health and financial lists?"
 
 #### get_tasks_due_today
 
@@ -237,9 +237,10 @@ get open tasks due today from specific lists. "today" is the machine's local day
 
 #### get_tasks_by_completed_date_range
 
-get tasks completed within a date range across ALL lists — ideal for weekly reporting
+get tasks completed within a date range from specific lists — ideal for weekly reporting
 
 **parameters:**
+- `list_ids` (required): the ids of the lists to check
 - `start_date` (required): start date in yyyy-mm-dd
 - `end_date` (optional): end date in yyyy-mm-dd (default: today)
 
@@ -249,8 +250,8 @@ get tasks completed within a date range across ALL lists — ideal for weekly re
 - daily average
 
 **example usage in claude:**
-> "what did I complete last week?"
-> "summarize my completed tasks since monday"
+> "what did I complete last week on my chores list?"
+> "summarize my completed tasks on my health and financial lists since monday"
 
 ### steps (checklist items)
 

@@ -74,9 +74,9 @@ uv tool install git+https://github.com/vicgarcia/todo-mcp
 - `delete_task` - Delete task
 
 ### Cross-List Views
-- `get_tasks_by_due_date_range` - Tasks due within date range across ALL lists
+- `get_tasks_by_due_date_range` - Open tasks due within date range in the given lists
 - `get_tasks_due_today` - Open tasks due today (local day) in the given lists
-- `get_tasks_by_completed_date_range` - Completed task history for reporting
+- `get_tasks_by_completed_date_range` - Completed task history in the given lists for reporting
 
 ### Steps (Checklist Items)
 - `get_steps` - Get checklist items for a task

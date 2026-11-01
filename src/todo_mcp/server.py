@@ -8,7 +8,7 @@ import argparse
 import logging
 import os
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -623,15 +623,17 @@ def delete_task(task_id: str, list_id: str) -> Dict[str, Any]:
 
 @mcp.tool
 def get_tasks_by_due_date_range(
+    list_ids: List[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     include_overdue: bool = True,
     include_no_due_date: bool = False,
 ) -> Dict[str, Any]:
     '''
-    get tasks due within a date range across ALL lists.
+    get open tasks due within a date range from specific lists.
 
     args:
+        list_ids: the ids of the lists to check (required)
         start_date: start of date range (yyyy-mm-dd), defaults to today
         end_date: end of date range (yyyy-mm-dd), defaults to start_date
         include_overdue: also return tasks due before today (default: True)
@@ -641,11 +643,14 @@ def get_tasks_by_due_date_range(
         dictionary with tasks grouped by category (overdue, in_range, no_due_date)
 
     examples:
-        get_tasks_by_due_date_range() -> today's tasks
-        get_tasks_by_due_date_range(start_date='2026-03-18') -> tomorrow's tasks
-        get_tasks_by_due_date_range(start_date='2026-03-17', end_date='2026-03-23') -> this week
+        get_tasks_by_due_date_range(list_ids=['abc']) -> today's tasks
+        get_tasks_by_due_date_range(list_ids=['abc'], start_date='2026-03-18') -> tomorrow's tasks
+        get_tasks_by_due_date_range(list_ids=['abc', 'def'], start_date='2026-03-17', end_date='2026-03-23') -> this week
     '''
     try:
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
         # the machine's local day, so this stays right in the evening when utc has moved on
         today = date.today()
 
@@ -669,13 +674,18 @@ def get_tasks_by_due_date_range(
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            all_tasks = client.get_all_tasks(filter_="status ne 'completed'")
+            names = {lst.id: lst.display_name for lst in client.get_lists()}
+            open_tasks = []
+            for list_id in list_ids:
+                for task in client.get_open_tasks(list_id):
+                    task.list_name = names.get(list_id)
+                    open_tasks.append(task)
 
         overdue_tasks: List[Dict] = []
         in_range_tasks: List[Dict] = []
         no_due_date_tasks: List[Dict] = []
 
-        for task in all_tasks:
+        for task in open_tasks:
             if task.status == 'completed':
                 continue
 
@@ -753,15 +763,17 @@ def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
 
 @mcp.tool
 def get_tasks_by_completed_date_range(
+    list_ids: List[str],
     start_date: str,
     end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     '''
-    get tasks completed within a date range across ALL lists.
+    get tasks completed within a date range from specific lists.
 
     uses server-side filtering for efficiency. ideal for weekly reporting.
 
     args:
+        list_ids: the ids of the lists to check (required)
         start_date: start of date range (yyyy-mm-dd), required
         end_date: end of date range (yyyy-mm-dd), defaults to today
 
@@ -769,10 +781,13 @@ def get_tasks_by_completed_date_range(
         dictionary with completed tasks grouped by list, with summary stats
 
     examples:
-        get_tasks_by_completed_date_range(start_date='2026-03-10') -> completed since march 10
-        get_tasks_by_completed_date_range(start_date='2026-03-01', end_date='2026-03-07') -> first week
+        get_tasks_by_completed_date_range(list_ids=['abc'], start_date='2026-03-10') -> completed since march 10
+        get_tasks_by_completed_date_range(list_ids=['abc', 'def'], start_date='2026-03-01', end_date='2026-03-07') -> first week
     '''
     try:
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
         try:
             start = parse_date(start_date)
         except (ValueError, TypeError):
@@ -784,13 +799,19 @@ def get_tasks_by_completed_date_range(
             except (ValueError, TypeError):
                 return format_error(ValueError(f'invalid end_date format: {end_date}'))
         else:
-            end = datetime.now(timezone.utc).date()
+            # the machine's local day, so this stays right in the evening when utc has moved on
+            end = date.today()
 
         if end < start:
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            tasks = client.get_tasks_by_completed_range(start, end)
+            names = {lst.id: lst.display_name for lst in client.get_lists()}
+            tasks = []
+            for list_id in list_ids:
+                for task in client.get_tasks_by_completed_range(list_id, start, end):
+                    task.list_name = names.get(list_id)
+                    tasks.append(task)
 
         # group by list
         by_list: Dict[str, List[Dict]] = {}
