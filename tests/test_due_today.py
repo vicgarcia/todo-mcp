@@ -174,7 +174,26 @@ def test_completed_range_covers_only_the_given_lists(graph):
     assert sorted(entry['list_name'] for entry in result['by_list']) == ['Chores', 'Health']
     paths = [path for path, _ in graph.calls]
     assert '/me/todo/lists/c/tasks' not in paths
-    assert "status eq 'completed'" in graph.calls[0][1]['$filter']
+    today = date.today().isoformat()
+    assert graph.calls[0][1]['$filter'] == (
+        f"status eq 'completed' and completedDateTime/dateTime ge '{today}' and completedDateTime/dateTime le '{today}'"
+    )
+
+
+def test_repeated_list_ids_are_only_read_once(graph):
+    assert server.get_tasks_due_today(['b', 'b'])['count'] == 1
+    assert server.get_tasks_by_due_date_range(['b', 'b'])['counts']['in_range'] == 1
+    assert len(server.get_tasks_by_completed_date_range(['b', 'b'], start_date='2026-01-01')['by_list'][0]['tasks']) == 1
+
+
+def test_a_rejected_list_id_is_named_in_the_error(graph):
+    def not_found(path, params=None):
+        raise GraphAPIError(404, 'ErrorItemNotFound', 'not found')
+
+    graph._get = not_found
+    result = server.get_tasks_due_today(['missing'])
+    assert result['success'] is False
+    assert 'missing' in result['error']
 
 
 def test_completed_range_with_empty_list_ids_is_an_error(graph):

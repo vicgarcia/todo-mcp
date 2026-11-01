@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -17,7 +17,7 @@ from dateutil import parser as date_parser
 from fastmcp import FastMCP
 
 from todo_mcp.graph_client import GraphAPIError, GraphClient
-from todo_mcp.schema import DateTimeTimeZone, Recurrence, RecurrencePattern
+from todo_mcp.schema import DateTimeTimeZone, Recurrence, RecurrencePattern, TodoTask
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +178,27 @@ def get_client() -> GraphClient:
     if _client is None:
         raise RuntimeError('client not initialized')
     return _client
+
+
+def tasks_in_lists(
+    client: GraphClient,
+    list_ids: List[str],
+    read: Callable[[str], List[TodoTask]],
+) -> List[TodoTask]:
+    '''read tasks from each list once, with list names, saying which list id graph rejects.'''
+    names = {lst.id: lst.display_name for lst in client.get_lists()}
+    tasks: List[TodoTask] = []
+    for list_id in dict.fromkeys(list_ids):
+        try:
+            found = read(list_id)
+        except GraphAPIError as e:
+            if e.status_code in (400, 404):
+                raise GraphAPIError(e.status_code, e.error_code, f'could not read list {list_id}: {e.message}') from e
+            raise
+        for task in found:
+            task.list_name = names.get(list_id)
+            tasks.append(task)
+    return tasks
 
 
 def format_error(error: Exception) -> Dict[str, Any]:
@@ -687,21 +708,13 @@ def get_tasks_by_due_date_range(
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            names = {lst.id: lst.display_name for lst in client.get_lists()}
-            open_tasks = []
-            for list_id in list_ids:
-                for task in client.get_open_tasks(list_id):
-                    task.list_name = names.get(list_id)
-                    open_tasks.append(task)
+            open_tasks = tasks_in_lists(client, list_ids, client.get_open_tasks)
 
         overdue_tasks: List[Dict] = []
         in_range_tasks: List[Dict] = []
         no_due_date_tasks: List[Dict] = []
 
         for task in open_tasks:
-            if task.status == 'completed':
-                continue
-
             task_dict = task.to_dict()
 
             if task.due_datetime:
@@ -756,13 +769,12 @@ def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
         today = date.today()
 
         with get_client() as client:
-            names = {lst.id: lst.display_name for lst in client.get_lists()}
-            tasks = []
-            for list_id in list_ids:
-                for task in client.get_open_tasks(list_id):
-                    if task.due_datetime and task.due_datetime.to_date() == today:
-                        task.list_name = names.get(list_id)
-                        tasks.append(task.to_dict())
+            open_tasks = tasks_in_lists(client, list_ids, client.get_open_tasks)
+
+        tasks = [
+            task.to_dict() for task in open_tasks
+            if task.due_datetime and task.due_datetime.to_date() == today
+        ]
 
         return format_success({
             'date': today.isoformat(),
@@ -819,12 +831,9 @@ def get_tasks_by_completed_date_range(
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            names = {lst.id: lst.display_name for lst in client.get_lists()}
-            tasks = []
-            for list_id in list_ids:
-                for task in client.get_tasks_by_completed_range(list_id, start, end):
-                    task.list_name = names.get(list_id)
-                    tasks.append(task)
+            tasks = tasks_in_lists(
+                client, list_ids, lambda list_id: client.get_tasks_by_completed_range(list_id, start, end)
+            )
 
         # group by list
         by_list: Dict[str, List[Dict]] = {}
