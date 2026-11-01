@@ -89,13 +89,16 @@ class GraphClient:
     def _refresh_token(self) -> None:
         '''refresh the access token.'''
         logger.debug('refreshing access token')
-        response = self._http.post(self.TOKEN_URL, data={
-            'client_id': self._client_id,
-            'client_secret': self._client_secret,
-            'refresh_token': self._token['refresh_token'],
-            'grant_type': 'refresh_token',
-            'scope': self.SCOPE,
-        })
+        try:
+            response = self._http.post(self.TOKEN_URL, data={
+                'client_id': self._client_id,
+                'client_secret': self._client_secret,
+                'refresh_token': self._token['refresh_token'],
+                'grant_type': 'refresh_token',
+                'scope': self.SCOPE,
+            })
+        except httpx.HTTPError as e:
+            raise GraphAPIError(0, 'NetworkError', f'could not refresh token: {e}') from e
         if response.status_code >= 400:
             raise GraphAPIError(
                 response.status_code,
@@ -141,19 +144,28 @@ class GraphClient:
     ) -> Dict[str, Any]:
         '''make a request to graph api.'''
         url = f'{self.GRAPH_URL}{path}'
+        # a failed write may still have gone through, so only reads retry on these
+        retryable = {429, 503, 504} if method == 'GET' else {429}
         for attempt in range(self.MAX_RETRIES + 1):
-            response = self._http.request(
-                method,
-                url,
-                headers=self._headers(),
-                json=json,
-                params=params
-            )
-            if response.status_code != 429 or attempt == self.MAX_RETRIES:
+            try:
+                response = self._http.request(
+                    method,
+                    url,
+                    headers=self._headers(),
+                    json=json,
+                    params=params
+                )
+            except httpx.HTTPError as e:
+                if method != 'GET' or attempt == self.MAX_RETRIES:
+                    raise GraphAPIError(0, 'NetworkError', f'could not reach microsoft graph: {e}') from e
+                logger.warning(f'network error reaching graph, retrying: {e}')
+                time.sleep(1.0)
+                continue
+            if response.status_code not in retryable or attempt == self.MAX_RETRIES:
                 break
             # graph limits how many requests can run against a mailbox at once
             delay = self._retry_delay(response)
-            logger.warning(f'rate limited by graph, retrying in {delay}s')
+            logger.warning(f'graph returned {response.status_code}, retrying in {delay}s')
             time.sleep(delay)
 
         if response.status_code >= 400:

@@ -167,7 +167,10 @@ def parse_args() -> argparse.Namespace:
 
 def parse_date(date_str: str) -> date:
     '''parse a date string to a date object.'''
-    return date_parser.parse(date_str).date()
+    try:
+        return date_parser.parse(date_str).date()
+    except OverflowError as e:
+        raise ValueError(f'date out of range: {date_str}') from e
 
 
 def get_client() -> GraphClient:
@@ -554,7 +557,7 @@ def update_task(
             return format_success({
                 'task': task.to_dict(),
             })
-    except GraphAPIError as e:
+    except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating task {task_id}: {e}')
         return format_error(e)
 
@@ -960,7 +963,7 @@ def update_step(
             return format_success({
                 'step': item.to_dict(),
             })
-    except GraphAPIError as e:
+    except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating step {item_id}: {e}')
         return format_error(e)
 

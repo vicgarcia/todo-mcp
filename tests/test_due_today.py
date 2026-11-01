@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import date, timedelta
 
+import httpx
 import pytest
 
 from todo_mcp import graph_client, server
@@ -226,7 +227,10 @@ class FakeHttp:
 
     def request(self, *args, **kwargs):
         self.count += 1
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def raw_client(responses, monkeypatch):
@@ -234,8 +238,48 @@ def raw_client(responses, monkeypatch):
     monkeypatch.setattr(graph_client.time, 'sleep', delays.append)
     client = GraphClient.__new__(GraphClient)
     client._http = FakeHttp(responses)
+    client._lock = threading.Lock()
     client._headers = lambda: {}
     return client, delays
+
+
+def test_reads_retry_server_errors_and_network_failures(monkeypatch):
+    client, delays = raw_client([FakeResponse(503), httpx.ConnectError('down'), FakeResponse(200, {'value': []})], monkeypatch)
+    assert client._get('/x') == {'value': []}
+    assert len(delays) == 2
+
+
+def test_writes_do_not_retry_what_may_have_gone_through(monkeypatch):
+    client, _ = raw_client([FakeResponse(503)], monkeypatch)
+    with pytest.raises(GraphAPIError):
+        client._post('/x', {})
+    assert client._http.count == 1
+
+    client, _ = raw_client([httpx.ReadTimeout('slow')], monkeypatch)
+    with pytest.raises(GraphAPIError):
+        client._post('/x', {})
+    assert client._http.count == 1
+
+
+def test_writes_retry_when_rate_limited(monkeypatch):
+    client, _ = raw_client([FakeResponse(429), FakeResponse(200, {'id': 'x'})], monkeypatch)
+    assert client._post('/x', {}) == {'id': 'x'}
+
+
+def test_a_network_failure_comes_back_as_a_normal_tool_error(monkeypatch):
+    client, _ = raw_client([httpx.ConnectError('down') for _ in range(GraphClient.MAX_RETRIES + 1)], monkeypatch)
+    monkeypatch.setattr(server, '_client', client)
+    result = server.get_lists()
+    assert result['success'] is False
+    assert 'could not reach' in result['error']
+
+
+def test_bad_update_input_comes_back_as_a_normal_tool_error(graph):
+    assert server.update_step('i', 't', 'a', name='')['success'] is False
+
+
+def test_an_absurd_date_is_a_normal_tool_error(graph):
+    assert server.get_tasks_by_due_date_range(['a'], start_date='99999999999999999999')['success'] is False
 
 
 def test_rate_limited_requests_are_retried_after_the_given_delay(monkeypatch):
