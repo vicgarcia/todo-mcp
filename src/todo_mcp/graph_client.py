@@ -320,6 +320,7 @@ class GraphClient:
         status: Optional[str] = None,
         recurrence: Optional[Recurrence] = None,
         remove_recurrence: bool = False,
+        clear_due_date: bool = False,
     ) -> TodoTask:
         '''
         update a task.
@@ -340,6 +341,8 @@ class GraphClient:
 
         if due_date is not None:
             payload['dueDateTime'] = DateTimeTimeZone.from_date(due_date).to_api()
+        elif clear_due_date:
+            payload['dueDateTime'] = None
 
         if remove_recurrence:
             payload['recurrence'] = None

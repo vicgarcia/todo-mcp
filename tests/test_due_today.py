@@ -175,6 +175,41 @@ def test_completed_range_with_empty_list_ids_is_an_error(graph):
     assert server.get_tasks_by_completed_date_range([], start_date='2026-01-01')['success'] is False
 
 
+def patches(graph):
+    sent = []
+
+    def patch(path, json):
+        sent.append(json)
+        return api_task('patched')
+
+    graph._patch = patch
+    return sent
+
+
+def test_update_task_can_clear_the_due_date(graph):
+    sent = patches(graph)
+    assert server.update_task('t', 'a', clear_due_date=True)['success'] is True
+    assert sent == [{'dueDateTime': None}]
+
+
+def test_update_task_can_clear_the_body(graph):
+    sent = patches(graph)
+    assert server.update_task('t', 'a', body_text='')['success'] is True
+    assert sent == [{'body': {'content': '', 'contentType': 'text'}}]
+
+
+def test_update_task_rejects_a_blank_title(graph):
+    sent = patches(graph)
+    assert server.update_task('t', 'a', title='  ')['success'] is False
+    assert sent == []
+
+
+def test_clear_due_date_cannot_be_combined_with_a_new_date(graph):
+    sent = patches(graph)
+    assert server.update_task('t', 'a', clear_due_date=True, due_date='2026-01-01')['success'] is False
+    assert sent == []
+
+
 def test_a_call_finishing_leaves_the_connection_open_for_an_overlapping_call():
     client = GraphClient('id', 'secret', {})
     with client:

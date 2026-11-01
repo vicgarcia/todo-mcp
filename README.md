@@ -167,9 +167,10 @@ update the properties of an existing task
 **parameters:**
 - `task_id` (required): id of the task
 - `list_id` (required): id of the list containing the task
-- `title` (optional): new title
+- `title` (optional): new title, can't be blank
 - `due_date` (optional): new due date in yyyy-mm-dd format
-- `body_text` (optional): new notes or description
+- `clear_due_date` (optional): set True to remove the due date
+- `body_text` (optional): new notes or description, an empty string clears them
 - `importance` (optional): `low`, `normal`, or `high`
 - `status` (optional): `notStarted`, `inProgress`, `completed`, `waitingOnOthers`, or `deferred`
 - `recurrence_type` (optional): `daily`, `weekly`, or `monthly` to set/change recurrence

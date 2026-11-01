@@ -465,6 +465,7 @@ def update_task(
     recurrence_days_of_week: Optional[List[str]] = None,
     recurrence_day_of_month: Optional[int] = None,
     remove_recurrence: bool = False,
+    clear_due_date: bool = False,
 ) -> Dict[str, Any]:
     '''
     update properties of an existing task.
@@ -472,9 +473,9 @@ def update_task(
     args:
         task_id: the id of the task (required)
         list_id: the id of the task list (required)
-        title: new task title (optional)
+        title: new task title, can't be blank (optional)
         due_date: new due date in yyyy-mm-dd format (optional)
-        body_text: new notes or description (optional)
+        body_text: new notes or description, an empty string clears them (optional)
         importance: 'low', 'normal', or 'high' (optional)
         status: 'notStarted', 'inProgress', 'completed', 'waitingOnOthers', 'deferred' (optional)
         recurrence_type: 'daily', 'weekly', or 'monthly' to set/change recurrence (optional)
@@ -482,6 +483,7 @@ def update_task(
         recurrence_days_of_week: for weekly recurrence (optional)
         recurrence_day_of_month: for monthly recurrence (optional)
         remove_recurrence: set True to remove recurrence from task (default: False)
+        clear_due_date: set True to remove the due date from task (default: False)
 
     returns:
         dictionary containing the updated task
@@ -491,6 +493,10 @@ def update_task(
             return format_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
             return format_error(ValueError('list_id is required'))
+        if title is not None and not title.strip():
+            return format_error(ValueError("title can't be blank"))
+        if clear_due_date and (due_date or recurrence_type):
+            return format_error(ValueError("clear_due_date can't be combined with due_date or recurrence_type"))
         if importance is not None and importance not in ('low', 'normal', 'high'):
             return format_error(ValueError("importance must be 'low', 'normal', or 'high'"))
         if status is not None:
@@ -537,6 +543,7 @@ def update_task(
             status is not None,
             recurrence is not None,
             remove_recurrence,
+            clear_due_date,
         ])
         if not has_updates:
             return format_error(ValueError('no updates provided'))
@@ -546,12 +553,13 @@ def update_task(
                 list_id=list_id.strip(),
                 task_id=task_id.strip(),
                 title=title.strip() if title else None,
-                body=body_text.strip() if body_text else None,
+                body=body_text.strip() if body_text is not None else None,
                 due_date=parsed_due,
                 importance=importance,
                 status=status,
                 recurrence=recurrence,
                 remove_recurrence=remove_recurrence,
+                clear_due_date=clear_due_date,
             )
             logger.info(f'updated task {task_id}')
             return format_success({
