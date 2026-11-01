@@ -135,9 +135,15 @@ def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
 def test_overdue_means_before_today_not_before_the_range(graph):
     # 'overdue' was due yesterday, 'today a' is before this future range but not late
     start = date.today() + timedelta(days=1)
-    result = server.get_tasks_by_due_date_range(['a'], start_date=start.isoformat())
+    result = server.get_tasks_by_due_date_range(['a'], start_date=start.isoformat(), include_overdue=True)
     assert [t['title'] for t in result['tasks']] == ['tomorrow']
     assert [t['title'] for t in result['overdue']] == ['overdue']
+
+
+def test_due_range_leaves_overdue_out_unless_asked(graph):
+    result = server.get_tasks_by_due_date_range(['a'])
+    assert 'overdue' not in result
+    assert result['counts']['overdue'] == 0
 
 
 def test_past_range_keeps_its_tasks_in_range(graph):

@@ -219,7 +219,7 @@ get open tasks due within a date range from specific lists — great for daily/w
 - `list_ids` (required): the ids of the lists to check
 - `start_date` (optional): start date in yyyy-mm-dd (default: today)
 - `end_date` (optional): end date in yyyy-mm-dd (default: start_date)
-- `include_overdue` (optional): also return tasks due before today (default: True)
+- `include_overdue` (optional): also return tasks due before today (default: False)
 - `include_no_due_date` (optional): include tasks without due dates (default: False)
 
 **returns:**

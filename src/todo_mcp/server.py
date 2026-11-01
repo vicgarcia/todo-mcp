@@ -639,7 +639,7 @@ def get_tasks_by_due_date_range(
     list_ids: List[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    include_overdue: bool = True,
+    include_overdue: bool = False,
     include_no_due_date: bool = False,
 ) -> Dict[str, Any]:
     '''
@@ -649,7 +649,7 @@ def get_tasks_by_due_date_range(
         list_ids: the ids of the lists to check (required)
         start_date: start of date range (yyyy-mm-dd), defaults to today
         end_date: end of date range (yyyy-mm-dd), defaults to start_date
-        include_overdue: also return tasks due before today (default: True)
+        include_overdue: also return tasks due before today (default: False)
         include_no_due_date: include tasks without a due date (default: False)
 
     returns:
