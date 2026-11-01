@@ -2,6 +2,8 @@
 tests for get_tasks_due_today and the paging behind it, with graph stubbed out.
 '''
 
+import threading
+import time
 from datetime import date, timedelta
 
 import pytest
@@ -170,6 +172,40 @@ def test_completed_range_covers_only_the_given_lists(graph):
 
 def test_completed_range_with_empty_list_ids_is_an_error(graph):
     assert server.get_tasks_by_completed_date_range([], start_date='2026-01-01')['success'] is False
+
+
+def test_a_call_finishing_leaves_the_connection_open_for_an_overlapping_call():
+    client = GraphClient('id', 'secret', {})
+    with client:
+        http = client._http
+        with client:
+            assert client._http is http
+        assert client._http is http and not http.is_closed
+    http.close()
+
+
+def test_overlapping_calls_refresh_an_expired_token_once(monkeypatch):
+    client = GraphClient('id', 'secret', {'expires_at': 0})
+    refreshes = []
+    barrier = threading.Barrier(4)
+
+    def refresh():
+        refreshes.append(1)
+        time.sleep(0.05)
+        client._token = {'expires_at': time.time() + 3600}
+
+    monkeypatch.setattr(client, '_refresh_token', refresh)
+
+    def call():
+        barrier.wait()
+        client._ensure_valid_token()
+
+    threads = [threading.Thread(target=call) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(refreshes) == 1
 
 
 class FakeResponse:

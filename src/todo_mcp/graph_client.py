@@ -6,6 +6,7 @@ based on live testing documented in GRAPH_API_REFERENCE.md.
 '''
 
 import logging
+import threading
 import time
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -56,15 +57,18 @@ class GraphClient:
         self._client_secret = client_secret
         self._token = token
         self._http: Optional[httpx.Client] = None
+        self._lock = threading.Lock()
 
     def __enter__(self) -> 'GraphClient':
-        self._http = httpx.Client(timeout=30.0)
+        # one shared connection for the life of the process: tool calls overlap, so
+        # one call finishing must not close the connection another is still using
+        with self._lock:
+            if self._http is None:
+                self._http = httpx.Client(timeout=30.0)
         return self
 
     def __exit__(self, *args) -> None:
-        if self._http:
-            self._http.close()
-            self._http = None
+        return None
 
     @property
     def token(self) -> Dict[str, Any]:
@@ -77,9 +81,10 @@ class GraphClient:
 
     def _ensure_valid_token(self) -> None:
         '''refresh token if expiring within 5 minutes.'''
-        expires_at = self._token.get('expires_at', 0)
-        if time.time() >= expires_at - 300:
-            self._refresh_token()
+        with self._lock:
+            expires_at = self._token.get('expires_at', 0)
+            if time.time() >= expires_at - 300:
+                self._refresh_token()
 
     def _refresh_token(self) -> None:
         '''refresh the access token.'''
