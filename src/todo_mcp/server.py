@@ -634,7 +634,7 @@ def get_tasks_by_due_date_range(
     args:
         start_date: start of date range (yyyy-mm-dd), defaults to today
         end_date: end of date range (yyyy-mm-dd), defaults to start_date
-        include_overdue: also return tasks with past due dates (default: True)
+        include_overdue: also return tasks due before today (default: True)
         include_no_due_date: include tasks without a due date (default: False)
 
     returns:
@@ -684,10 +684,10 @@ def get_tasks_by_due_date_range(
             if task.due_datetime:
                 due = task.due_datetime.to_date()
                 if due:
-                    if due < start and include_overdue:
-                        overdue_tasks.append(task_dict)
-                    elif start <= due <= end:
+                    if start <= due <= end:
                         in_range_tasks.append(task_dict)
+                    elif due < today and include_overdue:
+                        overdue_tasks.append(task_dict)
             elif include_no_due_date:
                 no_due_date_tasks.append(task_dict)
 

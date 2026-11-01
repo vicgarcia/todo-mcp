@@ -123,6 +123,21 @@ def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
     assert [t['title'] for t in result['tasks']] == ['tomorrow']
 
 
+def test_overdue_means_before_today_not_before_the_range(graph):
+    # 'overdue' was due yesterday, 'today a' is before this future range but not late
+    start = date.today() + timedelta(days=1)
+    result = server.get_tasks_by_due_date_range(start_date=start.isoformat())
+    assert [t['title'] for t in result['tasks']] == ['tomorrow']
+    assert [t['title'] for t in result['overdue']] == ['overdue']
+
+
+def test_past_range_keeps_its_tasks_in_range(graph):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    result = server.get_tasks_by_due_date_range(start_date=yesterday, include_overdue=True)
+    assert [t['title'] for t in result['tasks']] == ['overdue']
+    assert 'overdue' not in result
+
+
 def test_due_range_reports_a_list_it_cannot_read(graph):
     del graph.pages['/me/todo/lists/b/tasks']
 
@@ -178,3 +193,9 @@ def test_retries_give_up_and_raise(monkeypatch):
     with pytest.raises(GraphAPIError):
         client._get('/x')
     assert delays == [GraphClient.MAX_RETRY_DELAY] * GraphClient.MAX_RETRIES
+
+
+def test_retry_after_as_an_http_date_falls_back_to_a_short_delay(monkeypatch):
+    client, delays = raw_client([FakeResponse(429, headers={'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT'}), FakeResponse(200, {'value': []})], monkeypatch)
+    assert client._get('/x') == {'value': []}
+    assert delays == [1.0]

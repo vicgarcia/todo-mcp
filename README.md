@@ -80,7 +80,7 @@ the server authenticates at startup using your refresh token to obtain a live ac
 
 ## features
 
-this mcp server exposes 16 tools organized into categories.
+this mcp server exposes 17 tools organized into categories.
 
 ### list management
 
@@ -213,7 +213,7 @@ get tasks due within a date range across ALL lists — great for daily/weekly pl
 **parameters:**
 - `start_date` (optional): start date in yyyy-mm-dd (default: today)
 - `end_date` (optional): end date in yyyy-mm-dd (default: start_date)
-- `include_overdue` (optional): include past-due tasks (default: True)
+- `include_overdue` (optional): also return tasks due before today (default: True)
 - `include_no_due_date` (optional): include tasks without due dates (default: False)
 
 **returns:**

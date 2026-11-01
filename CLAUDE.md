@@ -39,6 +39,7 @@ todo-mcp/
 uv tool install --editable .                    # install in dev mode
 todo-mcp --auth --client-id X --client-secret Y # one-time auth
 todo-mcp --client-id X --client-secret Y --refresh-token Z  # run server
+uv run --extra test pytest                      # run tests
 docker build -t todo-mcp:local .                # build docker image
 ```
 
@@ -57,7 +58,7 @@ uv tool install git+https://github.com/vicgarcia/todo-mcp
 
 ## Tools Overview
 
-16 MCP tools organized by category:
+17 MCP tools organized by category:
 
 ### List Management
 - `get_lists` - Retrieve all task lists
@@ -136,7 +137,7 @@ run()
 
 - **17 tools**: Full CRUD for lists, tasks, steps + date range queries
 - **Recurrence support**: Daily, weekly, monthly patterns (noEnd only due to API bug)
-- **Batch API**: Cross-list queries use batch API for efficiency
+- **Sequential cross-list reads**: Lists are read one at a time with paging and 429 retries, because Graph throttles concurrent `$batch` reads per mailbox (live: 7-8 of 12 lists got 429, 2026-10-31)
 - **Server-side filtering**: Completed task history uses Graph API filters
 
 ### What We Didn't Build

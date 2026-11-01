@@ -119,6 +119,14 @@ class GraphClient:
     # low-level request methods
     # =========================================================================
 
+    def _retry_delay(self, response: httpx.Response) -> float:
+        '''seconds to wait before retrying; retry-after may also be an http date.'''
+        try:
+            delay = float(response.headers.get('Retry-After', 1))
+        except ValueError:
+            delay = 1.0
+        return min(max(delay, 0.0), self.MAX_RETRY_DELAY)
+
     def _request(
         self,
         method: str,
@@ -139,7 +147,7 @@ class GraphClient:
             if response.status_code != 429 or attempt == self.MAX_RETRIES:
                 break
             # graph limits how many requests can run against a mailbox at once
-            delay = min(float(response.headers.get('Retry-After', 1)), self.MAX_RETRY_DELAY)
+            delay = self._retry_delay(response)
             logger.warning(f'rate limited by graph, retrying in {delay}s')
             time.sleep(delay)
 
@@ -168,39 +176,6 @@ class GraphClient:
 
     def _delete(self, path: str) -> Dict[str, Any]:
         return self._request('DELETE', path)
-
-    # =========================================================================
-    # batch requests
-    # =========================================================================
-
-    def batch(self, requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        '''
-        execute a batch of requests (max 20).
-
-        args:
-            requests: list of {'id': str, 'method': str, 'url': str, 'body': dict (optional)}
-
-        returns:
-            list of {'id': str, 'status': int, 'body': dict}
-        '''
-        if len(requests) > 20:
-            raise ValueError('batch requests limited to 20')
-
-        payload = {'requests': requests}
-        response = self._http.post(
-            f'{self.GRAPH_URL}/$batch',
-            headers=self._headers(),
-            json=payload
-        )
-
-        if response.status_code >= 400:
-            raise GraphAPIError(
-                response.status_code,
-                'BatchError',
-                f'batch request failed: {response.text}'
-            )
-
-        return response.json().get('responses', [])
 
     # =========================================================================
     # list operations
@@ -443,7 +418,7 @@ class GraphClient:
         self._delete(f'/me/todo/lists/{list_id}/tasks/{task_id}/checklistItems/{item_id}')
 
     # =========================================================================
-    # cross-list queries (using batch api)
+    # cross-list queries
     # =========================================================================
 
     def get_all_tasks(self, filter_: Optional[str] = None) -> List[TodoTask]:
