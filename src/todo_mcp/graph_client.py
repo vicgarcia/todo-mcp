@@ -240,28 +240,33 @@ class GraphClient:
             filter_: OData filter string (e.g., "status eq 'completed'")
             top: max number of tasks to return
         '''
-        params: Dict[str, Any] = {}
-        if filter_:
-            params['$filter'] = filter_
-        if top:
-            params['$top'] = top
-
-        data = self._get(f'/me/todo/lists/{list_id}/tasks', params=params or None)
-        return [TodoTask.from_api(item, list_id) for item in data.get('value', [])]
+        return self._get_all_pages(list_id, filter_, top)
 
     def get_open_tasks(self, list_id: str) -> List[TodoTask]:
         '''get every open task in a list.'''
         return self._get_all_pages(list_id, "status ne 'completed'")
 
-    def _get_all_pages(self, list_id: str, filter_: Optional[str] = None) -> List[TodoTask]:
-        '''get every task in a list matching a filter, following graph's paging.'''
+    def _get_all_pages(
+        self,
+        list_id: str,
+        filter_: Optional[str] = None,
+        top: Optional[int] = None,
+    ) -> List[TodoTask]:
+        '''get tasks in a list matching a filter, following graph's paging up to top.'''
         tasks: List[TodoTask] = []
         path: Optional[str] = f'/me/todo/lists/{list_id}/tasks'
-        params: Optional[Dict[str, Any]] = {'$filter': filter_} if filter_ else None
+        params: Dict[str, Any] = {}
+        if filter_:
+            params['$filter'] = filter_
+        if top:
+            params['$top'] = top
+        params = params or None
 
         while path:
             data = self._get(path, params=params)
             tasks.extend(TodoTask.from_api(item, list_id) for item in data.get('value', []))
+            if top and len(tasks) >= top:
+                return tasks[:top]
             next_link = data.get('@odata.nextLink')
             # the next link is a full url that already carries the filter
             path = next_link.removeprefix(self.GRAPH_URL) if next_link else None

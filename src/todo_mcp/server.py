@@ -324,7 +324,7 @@ def get_tasks(
         limit: maximum number of tasks to return (default: 100, max: 1000)
 
     returns:
-        dictionary containing the tasks
+        dictionary containing the tasks, with truncated true if the list holds more than limit
     '''
     try:
         if not list_id or not list_id.strip():
@@ -344,10 +344,12 @@ def get_tasks(
             ))
 
         with get_client() as client:
-            tasks = client.get_tasks(list_id.strip(), filter_=filter_, top=limit)
+            # one more than the limit shows whether anything was left out
+            tasks = client.get_tasks(list_id.strip(), filter_=filter_, top=limit + 1)
             return format_success({
-                'count': len(tasks),
-                'tasks': [task.to_dict() for task in tasks],
+                'count': min(len(tasks), limit),
+                'truncated': len(tasks) > limit,
+                'tasks': [task.to_dict() for task in tasks[:limit]],
                 'list_id': list_id,
                 'status_filter': status,
             })

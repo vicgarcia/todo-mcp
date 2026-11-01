@@ -175,6 +175,22 @@ def test_completed_range_with_empty_list_ids_is_an_error(graph):
     assert server.get_tasks_by_completed_date_range([], start_date='2026-01-01')['success'] is False
 
 
+def test_get_tasks_follows_pages_and_is_not_truncated_when_all_fit(graph):
+    result = server.get_tasks('a', limit=5)
+    assert result['count'] == 5
+    assert result['truncated'] is False
+    assert result['tasks'][-1]['title'] == 'today page two'
+    assert graph.calls[0][1]['$top'] == 6
+
+
+def test_get_tasks_says_when_it_left_tasks_out(graph):
+    result = server.get_tasks('a', limit=2)
+    assert result['count'] == 2
+    assert len(result['tasks']) == 2
+    assert result['truncated'] is True
+    assert len(graph.calls) == 1
+
+
 def patches(graph):
     sent = []
 

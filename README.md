@@ -137,6 +137,10 @@ retrieve tasks from a specific list
 - `status` (optional): filter by status — `not_completed` (default), `completed`, or `all`
 - `limit` (optional): max tasks to return (default: 100, max: 1000)
 
+**returns:**
+- the tasks and their count
+- `truncated`: true if the list holds more tasks than `limit`
+
 **example usage in claude:**
 > "show me all my incomplete tasks in my work list"
 
