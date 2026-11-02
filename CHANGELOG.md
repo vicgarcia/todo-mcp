@@ -1,3 +1,22 @@
+## unreleased
+
+**breaking:**
+- `get_tasks_by_due_date_range` and `get_tasks_by_completed_date_range` now require `list_ids` and only read those lists; get ids from `get_lists`
+- `get_tasks_by_due_date_range` leaves overdue tasks out unless `include_overdue` is true
+
+**added:**
+- `get_tasks_due_today` - open tasks due today in the given lists
+- `clear_due_date` on `update_task`, and an empty `body_text` clears the notes
+- `truncated` in `get_tasks` results
+
+**fixed:**
+- overlapping tool calls no longer close the shared connection on each other
+- network and bad input failures come back as normal tool errors
+- reads retry on 429, 503 and 504; writes only retry on 429
+- `get_tasks` follows graph's paging up to `limit`
+- "today" and the default completed end date use the machine's local day
+- multi-list reads no longer lose lists to rate limiting: lists are read one at a time, with paging
+
 ## v2.0.0
 
 major refactor with direct microsoft graph api access and expanded tool set.

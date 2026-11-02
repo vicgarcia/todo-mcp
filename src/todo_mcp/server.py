@@ -8,8 +8,8 @@ import argparse
 import logging
 import os
 import time
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -17,7 +17,7 @@ from dateutil import parser as date_parser
 from fastmcp import FastMCP
 
 from todo_mcp.graph_client import GraphAPIError, GraphClient
-from todo_mcp.schema import DateTimeTimeZone, Recurrence, RecurrencePattern
+from todo_mcp.schema import DateTimeTimeZone, Recurrence, RecurrencePattern, TodoTask
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,10 @@ def parse_args() -> argparse.Namespace:
 
 def parse_date(date_str: str) -> date:
     '''parse a date string to a date object.'''
-    return date_parser.parse(date_str).date()
+    try:
+        return date_parser.parse(date_str).date()
+    except OverflowError as e:
+        raise ValueError(f'date out of range: {date_str}') from e
 
 
 def get_client() -> GraphClient:
@@ -175,6 +178,27 @@ def get_client() -> GraphClient:
     if _client is None:
         raise RuntimeError('client not initialized')
     return _client
+
+
+def tasks_in_lists(
+    client: GraphClient,
+    list_ids: List[str],
+    read: Callable[[str], List[TodoTask]],
+) -> List[TodoTask]:
+    '''read tasks from each list once, with list names, saying which list id graph rejects.'''
+    names = {lst.id: lst.display_name for lst in client.get_lists()}
+    tasks: List[TodoTask] = []
+    for list_id in dict.fromkeys(list_ids):
+        try:
+            found = read(list_id)
+        except GraphAPIError as e:
+            if e.status_code in (400, 404):
+                raise GraphAPIError(e.status_code, e.error_code, f'could not read list {list_id}: {e.message}') from e
+            raise
+        for task in found:
+            task.list_name = names.get(list_id)
+            tasks.append(task)
+    return tasks
 
 
 def format_error(error: Exception) -> Dict[str, Any]:
@@ -321,7 +345,7 @@ def get_tasks(
         limit: maximum number of tasks to return (default: 100, max: 1000)
 
     returns:
-        dictionary containing the tasks
+        dictionary containing the tasks, with truncated true if the list holds more than limit
     '''
     try:
         if not list_id or not list_id.strip():
@@ -341,10 +365,12 @@ def get_tasks(
             ))
 
         with get_client() as client:
-            tasks = client.get_tasks(list_id.strip(), filter_=filter_, top=limit)
+            # one more than the limit shows whether anything was left out
+            tasks = client.get_tasks(list_id.strip(), filter_=filter_, top=limit + 1)
             return format_success({
-                'count': len(tasks),
-                'tasks': [task.to_dict() for task in tasks],
+                'count': min(len(tasks), limit),
+                'truncated': len(tasks) > limit,
+                'tasks': [task.to_dict() for task in tasks[:limit]],
                 'list_id': list_id,
                 'status_filter': status,
             })
@@ -462,6 +488,7 @@ def update_task(
     recurrence_days_of_week: Optional[List[str]] = None,
     recurrence_day_of_month: Optional[int] = None,
     remove_recurrence: bool = False,
+    clear_due_date: bool = False,
 ) -> Dict[str, Any]:
     '''
     update properties of an existing task.
@@ -469,9 +496,9 @@ def update_task(
     args:
         task_id: the id of the task (required)
         list_id: the id of the task list (required)
-        title: new task title (optional)
+        title: new task title, can't be blank (optional)
         due_date: new due date in yyyy-mm-dd format (optional)
-        body_text: new notes or description (optional)
+        body_text: new notes or description, an empty string clears them (optional)
         importance: 'low', 'normal', or 'high' (optional)
         status: 'notStarted', 'inProgress', 'completed', 'waitingOnOthers', 'deferred' (optional)
         recurrence_type: 'daily', 'weekly', or 'monthly' to set/change recurrence (optional)
@@ -479,6 +506,7 @@ def update_task(
         recurrence_days_of_week: for weekly recurrence (optional)
         recurrence_day_of_month: for monthly recurrence (optional)
         remove_recurrence: set True to remove recurrence from task (default: False)
+        clear_due_date: set True to remove the due date from task (default: False)
 
     returns:
         dictionary containing the updated task
@@ -488,6 +516,10 @@ def update_task(
             return format_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
             return format_error(ValueError('list_id is required'))
+        if title is not None and not title.strip():
+            return format_error(ValueError("title can't be blank"))
+        if clear_due_date and (due_date or recurrence_type):
+            return format_error(ValueError("clear_due_date can't be combined with due_date or recurrence_type"))
         if importance is not None and importance not in ('low', 'normal', 'high'):
             return format_error(ValueError("importance must be 'low', 'normal', or 'high'"))
         if status is not None:
@@ -534,6 +566,7 @@ def update_task(
             status is not None,
             recurrence is not None,
             remove_recurrence,
+            clear_due_date,
         ])
         if not has_updates:
             return format_error(ValueError('no updates provided'))
@@ -543,18 +576,19 @@ def update_task(
                 list_id=list_id.strip(),
                 task_id=task_id.strip(),
                 title=title.strip() if title else None,
-                body=body_text.strip() if body_text else None,
+                body=body_text.strip() if body_text is not None else None,
                 due_date=parsed_due,
                 importance=importance,
                 status=status,
                 recurrence=recurrence,
                 remove_recurrence=remove_recurrence,
+                clear_due_date=clear_due_date,
             )
             logger.info(f'updated task {task_id}')
             return format_success({
                 'task': task.to_dict(),
             })
-    except GraphAPIError as e:
+    except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating task {task_id}: {e}')
         return format_error(e)
 
@@ -623,30 +657,36 @@ def delete_task(task_id: str, list_id: str) -> Dict[str, Any]:
 
 @mcp.tool
 def get_tasks_by_due_date_range(
+    list_ids: List[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    include_overdue: bool = True,
+    include_overdue: bool = False,
     include_no_due_date: bool = False,
 ) -> Dict[str, Any]:
     '''
-    get tasks due within a date range across ALL lists.
+    get open tasks due within a date range from specific lists.
 
     args:
+        list_ids: the ids of the lists to check (required)
         start_date: start of date range (yyyy-mm-dd), defaults to today
         end_date: end of date range (yyyy-mm-dd), defaults to start_date
-        include_overdue: also return tasks with past due dates (default: True)
+        include_overdue: also return tasks due before today (default: False)
         include_no_due_date: include tasks without a due date (default: False)
 
     returns:
         dictionary with tasks grouped by category (overdue, in_range, no_due_date)
 
     examples:
-        get_tasks_by_due_date_range() -> today's tasks
-        get_tasks_by_due_date_range(start_date='2026-03-18') -> tomorrow's tasks
-        get_tasks_by_due_date_range(start_date='2026-03-17', end_date='2026-03-23') -> this week
+        get_tasks_by_due_date_range(list_ids=['abc']) -> today's tasks
+        get_tasks_by_due_date_range(list_ids=['abc'], start_date='2026-03-18') -> tomorrow's tasks
+        get_tasks_by_due_date_range(list_ids=['abc', 'def'], start_date='2026-03-17', end_date='2026-03-23') -> this week
     '''
     try:
-        today = datetime.now(timezone.utc).date()
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
+        # the machine's local day, so this stays right in the evening when utc has moved on
+        today = date.today()
 
         if start_date:
             try:
@@ -668,25 +708,22 @@ def get_tasks_by_due_date_range(
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            all_tasks = client.get_all_tasks()
+            open_tasks = tasks_in_lists(client, list_ids, client.get_open_tasks)
 
         overdue_tasks: List[Dict] = []
         in_range_tasks: List[Dict] = []
         no_due_date_tasks: List[Dict] = []
 
-        for task in all_tasks:
-            if task.status == 'completed':
-                continue
-
+        for task in open_tasks:
             task_dict = task.to_dict()
 
             if task.due_datetime:
                 due = task.due_datetime.to_date()
                 if due:
-                    if due < start and include_overdue:
-                        overdue_tasks.append(task_dict)
-                    elif start <= due <= end:
+                    if start <= due <= end:
                         in_range_tasks.append(task_dict)
+                    elif due < today and include_overdue:
+                        overdue_tasks.append(task_dict)
             elif include_no_due_date:
                 no_due_date_tasks.append(task_dict)
 
@@ -714,16 +751,54 @@ def get_tasks_by_due_date_range(
 
 
 @mcp.tool
+def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
+    '''
+    get open tasks due today from specific lists. overdue tasks are not included.
+
+    args:
+        list_ids: the ids of the lists to check (required)
+
+    returns:
+        dictionary with today's date, the count, and the tasks with their list names
+    '''
+    try:
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
+        # the machine's local day, so this stays right in the evening when utc has moved on
+        today = date.today()
+
+        with get_client() as client:
+            open_tasks = tasks_in_lists(client, list_ids, client.get_open_tasks)
+
+        tasks = [
+            task.to_dict() for task in open_tasks
+            if task.due_datetime and task.due_datetime.to_date() == today
+        ]
+
+        return format_success({
+            'date': today.isoformat(),
+            'count': len(tasks),
+            'tasks': tasks,
+        })
+    except GraphAPIError as e:
+        logger.error(f'error getting tasks due today: {e}')
+        return format_error(e)
+
+
+@mcp.tool
 def get_tasks_by_completed_date_range(
+    list_ids: List[str],
     start_date: str,
     end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     '''
-    get tasks completed within a date range across ALL lists.
+    get tasks completed within a date range from specific lists.
 
     uses server-side filtering for efficiency. ideal for weekly reporting.
 
     args:
+        list_ids: the ids of the lists to check (required)
         start_date: start of date range (yyyy-mm-dd), required
         end_date: end of date range (yyyy-mm-dd), defaults to today
 
@@ -731,10 +806,13 @@ def get_tasks_by_completed_date_range(
         dictionary with completed tasks grouped by list, with summary stats
 
     examples:
-        get_tasks_by_completed_date_range(start_date='2026-03-10') -> completed since march 10
-        get_tasks_by_completed_date_range(start_date='2026-03-01', end_date='2026-03-07') -> first week
+        get_tasks_by_completed_date_range(list_ids=['abc'], start_date='2026-03-10') -> completed since march 10
+        get_tasks_by_completed_date_range(list_ids=['abc', 'def'], start_date='2026-03-01', end_date='2026-03-07') -> first week
     '''
     try:
+        if not list_ids:
+            return format_error(ValueError('list_ids is required'))
+
         try:
             start = parse_date(start_date)
         except (ValueError, TypeError):
@@ -746,13 +824,16 @@ def get_tasks_by_completed_date_range(
             except (ValueError, TypeError):
                 return format_error(ValueError(f'invalid end_date format: {end_date}'))
         else:
-            end = datetime.now(timezone.utc).date()
+            # the machine's local day, so this stays right in the evening when utc has moved on
+            end = date.today()
 
         if end < start:
             return format_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
-            tasks = client.get_tasks_by_completed_range(start, end)
+            tasks = tasks_in_lists(
+                client, list_ids, lambda list_id: client.get_tasks_by_completed_range(list_id, start, end)
+            )
 
         # group by list
         by_list: Dict[str, List[Dict]] = {}
@@ -901,7 +982,7 @@ def update_step(
             return format_success({
                 'step': item.to_dict(),
             })
-    except GraphAPIError as e:
+    except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating step {item_id}: {e}')
         return format_error(e)
 

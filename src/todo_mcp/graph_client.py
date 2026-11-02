@@ -6,6 +6,7 @@ based on live testing documented in GRAPH_API_REFERENCE.md.
 '''
 
 import logging
+import threading
 import time
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,8 @@ class GraphClient:
 
     TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
     GRAPH_URL = 'https://graph.microsoft.com/v1.0'
+    MAX_RETRIES = 3
+    MAX_RETRY_DELAY = 10.0  # seconds; claude is waiting on the call
     SCOPE = 'openid offline_access Tasks.ReadWrite'
 
     def __init__(self, client_id: str, client_secret: str, token: Dict[str, Any]):
@@ -54,15 +57,18 @@ class GraphClient:
         self._client_secret = client_secret
         self._token = token
         self._http: Optional[httpx.Client] = None
+        self._lock = threading.Lock()
 
     def __enter__(self) -> 'GraphClient':
-        self._http = httpx.Client(timeout=30.0)
+        # one shared connection for the life of the process: tool calls overlap, so
+        # one call finishing must not close the connection another is still using
+        with self._lock:
+            if self._http is None:
+                self._http = httpx.Client(timeout=30.0)
         return self
 
     def __exit__(self, *args) -> None:
-        if self._http:
-            self._http.close()
-            self._http = None
+        return None
 
     @property
     def token(self) -> Dict[str, Any]:
@@ -75,20 +81,24 @@ class GraphClient:
 
     def _ensure_valid_token(self) -> None:
         '''refresh token if expiring within 5 minutes.'''
-        expires_at = self._token.get('expires_at', 0)
-        if time.time() >= expires_at - 300:
-            self._refresh_token()
+        with self._lock:
+            expires_at = self._token.get('expires_at', 0)
+            if time.time() >= expires_at - 300:
+                self._refresh_token()
 
     def _refresh_token(self) -> None:
         '''refresh the access token.'''
         logger.debug('refreshing access token')
-        response = self._http.post(self.TOKEN_URL, data={
-            'client_id': self._client_id,
-            'client_secret': self._client_secret,
-            'refresh_token': self._token['refresh_token'],
-            'grant_type': 'refresh_token',
-            'scope': self.SCOPE,
-        })
+        try:
+            response = self._http.post(self.TOKEN_URL, data={
+                'client_id': self._client_id,
+                'client_secret': self._client_secret,
+                'refresh_token': self._token['refresh_token'],
+                'grant_type': 'refresh_token',
+                'scope': self.SCOPE,
+            })
+        except httpx.HTTPError as e:
+            raise GraphAPIError(0, 'NetworkError', f'could not refresh token: {e}') from e
         if response.status_code >= 400:
             raise GraphAPIError(
                 response.status_code,
@@ -117,6 +127,14 @@ class GraphClient:
     # low-level request methods
     # =========================================================================
 
+    def _retry_delay(self, response: httpx.Response) -> float:
+        '''seconds to wait before retrying; retry-after may also be an http date.'''
+        try:
+            delay = float(response.headers.get('Retry-After', 1))
+        except ValueError:
+            delay = 1.0
+        return min(max(delay, 0.0), self.MAX_RETRY_DELAY)
+
     def _request(
         self,
         method: str,
@@ -126,13 +144,29 @@ class GraphClient:
     ) -> Dict[str, Any]:
         '''make a request to graph api.'''
         url = f'{self.GRAPH_URL}{path}'
-        response = self._http.request(
-            method,
-            url,
-            headers=self._headers(),
-            json=json,
-            params=params
-        )
+        # a failed write may still have gone through, so only reads retry on these
+        retryable = {429, 503, 504} if method == 'GET' else {429}
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                response = self._http.request(
+                    method,
+                    url,
+                    headers=self._headers(),
+                    json=json,
+                    params=params
+                )
+            except httpx.HTTPError as e:
+                if method != 'GET' or attempt == self.MAX_RETRIES:
+                    raise GraphAPIError(0, 'NetworkError', f'could not reach microsoft graph: {e}') from e
+                logger.warning(f'network error reaching graph, retrying: {e}')
+                time.sleep(1.0)
+                continue
+            if response.status_code not in retryable or attempt == self.MAX_RETRIES:
+                break
+            # graph limits how many requests can run against a mailbox at once
+            delay = self._retry_delay(response)
+            logger.warning(f'graph returned {response.status_code}, retrying in {delay}s')
+            time.sleep(delay)
 
         if response.status_code >= 400:
             try:
@@ -159,39 +193,6 @@ class GraphClient:
 
     def _delete(self, path: str) -> Dict[str, Any]:
         return self._request('DELETE', path)
-
-    # =========================================================================
-    # batch requests
-    # =========================================================================
-
-    def batch(self, requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        '''
-        execute a batch of requests (max 20).
-
-        args:
-            requests: list of {'id': str, 'method': str, 'url': str, 'body': dict (optional)}
-
-        returns:
-            list of {'id': str, 'status': int, 'body': dict}
-        '''
-        if len(requests) > 20:
-            raise ValueError('batch requests limited to 20')
-
-        payload = {'requests': requests}
-        response = self._http.post(
-            f'{self.GRAPH_URL}/$batch',
-            headers=self._headers(),
-            json=payload
-        )
-
-        if response.status_code >= 400:
-            raise GraphAPIError(
-                response.status_code,
-                'BatchError',
-                f'batch request failed: {response.text}'
-            )
-
-        return response.json().get('responses', [])
 
     # =========================================================================
     # list operations
@@ -239,14 +240,39 @@ class GraphClient:
             filter_: OData filter string (e.g., "status eq 'completed'")
             top: max number of tasks to return
         '''
+        return self._get_all_pages(list_id, filter_, top)
+
+    def get_open_tasks(self, list_id: str) -> List[TodoTask]:
+        '''get every open task in a list.'''
+        return self._get_all_pages(list_id, "status ne 'completed'")
+
+    def _get_all_pages(
+        self,
+        list_id: str,
+        filter_: Optional[str] = None,
+        top: Optional[int] = None,
+    ) -> List[TodoTask]:
+        '''get tasks in a list matching a filter, following graph's paging up to top.'''
+        tasks: List[TodoTask] = []
+        path: Optional[str] = f'/me/todo/lists/{list_id}/tasks'
         params: Dict[str, Any] = {}
         if filter_:
             params['$filter'] = filter_
         if top:
             params['$top'] = top
+        params = params or None
 
-        data = self._get(f'/me/todo/lists/{list_id}/tasks', params=params or None)
-        return [TodoTask.from_api(item, list_id) for item in data.get('value', [])]
+        while path:
+            data = self._get(path, params=params)
+            tasks.extend(TodoTask.from_api(item, list_id) for item in data.get('value', []))
+            if top and len(tasks) >= top:
+                return tasks[:top]
+            next_link = data.get('@odata.nextLink')
+            # the next link is a full url that already carries the filter
+            path = next_link.removeprefix(self.GRAPH_URL) if next_link else None
+            params = None
+
+        return tasks
 
     def get_task(self, list_id: str, task_id: str) -> TodoTask:
         '''get a specific task.'''
@@ -299,6 +325,7 @@ class GraphClient:
         status: Optional[str] = None,
         recurrence: Optional[Recurrence] = None,
         remove_recurrence: bool = False,
+        clear_due_date: bool = False,
     ) -> TodoTask:
         '''
         update a task.
@@ -319,6 +346,8 @@ class GraphClient:
 
         if due_date is not None:
             payload['dueDateTime'] = DateTimeTimeZone.from_date(due_date).to_api()
+        elif clear_due_date:
+            payload['dueDateTime'] = None
 
         if remove_recurrence:
             payload['recurrence'] = None
@@ -414,54 +443,17 @@ class GraphClient:
         self._delete(f'/me/todo/lists/{list_id}/tasks/{task_id}/checklistItems/{item_id}')
 
     # =========================================================================
-    # cross-list queries (using batch api)
+    # cross-list queries
     # =========================================================================
-
-    def get_all_tasks(self, filter_: Optional[str] = None) -> List[TodoTask]:
-        '''
-        get tasks from ALL lists using batch api.
-
-        args:
-            filter_: OData filter to apply to each list query
-        '''
-        lists = self.get_lists()
-        if not lists:
-            return []
-
-        # build batch request for all lists
-        requests = []
-        for i, lst in enumerate(lists):
-            url = f'/me/todo/lists/{lst.id}/tasks'
-            if filter_:
-                url += f'?$filter={filter_}'
-            requests.append({'id': str(i), 'method': 'GET', 'url': url})
-
-        # execute in batches of 20
-        all_tasks: List[TodoTask] = []
-        list_map = {str(i): lst for i, lst in enumerate(lists)}
-
-        for batch_start in range(0, len(requests), 20):
-            batch = requests[batch_start:batch_start + 20]
-            responses = self.batch(batch)
-
-            for resp in responses:
-                if resp.get('status') == 200:
-                    lst = list_map[resp['id']]
-                    tasks = resp.get('body', {}).get('value', [])
-                    for task_data in tasks:
-                        task = TodoTask.from_api(task_data, lst.id)
-                        task.list_name = lst.display_name
-                        all_tasks.append(task)
-
-        return all_tasks
 
     def get_tasks_by_completed_range(
         self,
+        list_id: str,
         start_date: date,
         end_date: date,
     ) -> List[TodoTask]:
         '''
-        get completed tasks within a date range from ALL lists.
+        get completed tasks within a date range from a list.
         uses server-side filtering for efficiency.
         '''
         filter_str = (
@@ -469,32 +461,4 @@ class GraphClient:
             f"completedDateTime/dateTime ge '{start_date.isoformat()}' and "
             f"completedDateTime/dateTime le '{end_date.isoformat()}'"
         )
-        return self.get_all_tasks(filter_=filter_str)
-
-    def get_tasks_by_due_range(
-        self,
-        start_date: date,
-        end_date: date,
-        include_no_due_date: bool = False,
-    ) -> List[TodoTask]:
-        '''
-        get tasks due within a date range from ALL lists.
-
-        note: dueDateTime filtering requires client-side filtering as
-        the server-side filter for due dates is unreliable.
-        '''
-        all_tasks = self.get_all_tasks()
-        result: List[TodoTask] = []
-
-        for task in all_tasks:
-            if task.status == 'completed':
-                continue
-
-            if task.due_datetime:
-                due_date = task.due_datetime.to_date()
-                if due_date and start_date <= due_date <= end_date:
-                    result.append(task)
-            elif include_no_due_date:
-                result.append(task)
-
-        return result
+        return self._get_all_pages(list_id, filter_str)

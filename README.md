@@ -80,7 +80,7 @@ the server authenticates at startup using your refresh token to obtain a live ac
 
 ## features
 
-this mcp server exposes 16 tools organized into categories.
+this mcp server exposes 17 tools organized into categories.
 
 ### list management
 
@@ -137,6 +137,10 @@ retrieve tasks from a specific list
 - `status` (optional): filter by status — `not_completed` (default), `completed`, or `all`
 - `limit` (optional): max tasks to return (default: 100, max: 1000)
 
+**returns:**
+- the tasks and their count
+- `truncated`: true if the list holds more tasks than `limit`
+
 **example usage in claude:**
 > "show me all my incomplete tasks in my work list"
 
@@ -167,9 +171,10 @@ update the properties of an existing task
 **parameters:**
 - `task_id` (required): id of the task
 - `list_id` (required): id of the list containing the task
-- `title` (optional): new title
+- `title` (optional): new title, can't be blank
 - `due_date` (optional): new due date in yyyy-mm-dd format
-- `body_text` (optional): new notes or description
+- `clear_due_date` (optional): set True to remove the due date
+- `body_text` (optional): new notes or description, an empty string clears them
 - `importance` (optional): `low`, `normal`, or `high`
 - `status` (optional): `notStarted`, `inProgress`, `completed`, `waitingOnOthers`, or `deferred`
 - `recurrence_type` (optional): `daily`, `weekly`, or `monthly` to set/change recurrence
@@ -208,12 +213,13 @@ permanently delete a task
 
 #### get_tasks_by_due_date_range
 
-get tasks due within a date range across ALL lists — great for daily/weekly planning
+get open tasks due within a date range from specific lists — great for daily/weekly planning
 
 **parameters:**
+- `list_ids` (required): the ids of the lists to check
 - `start_date` (optional): start date in yyyy-mm-dd (default: today)
 - `end_date` (optional): end date in yyyy-mm-dd (default: start_date)
-- `include_overdue` (optional): include past-due tasks (default: True)
+- `include_overdue` (optional): also return tasks due before today (default: False)
 - `include_no_due_date` (optional): include tasks without due dates (default: False)
 
 **returns:**
@@ -221,15 +227,25 @@ get tasks due within a date range across ALL lists — great for daily/weekly pl
 - counts for each category
 
 **example usage in claude:**
-> "what do I have due today?"
-> "show me my tasks for this week"
-> "what's overdue?"
+> "what's due this week on my chores list?"
+> "what's overdue on my health and financial lists?"
+
+#### get_tasks_due_today
+
+get open tasks due today from specific lists. "today" is the machine's local day, and overdue tasks are not included
+
+**parameters:**
+- `list_ids` (required): the ids of the lists to check
+
+**example usage in claude:**
+> "what's due today on my chores and health lists?"
 
 #### get_tasks_by_completed_date_range
 
-get tasks completed within a date range across ALL lists — ideal for weekly reporting
+get tasks completed within a date range from specific lists — ideal for weekly reporting
 
 **parameters:**
+- `list_ids` (required): the ids of the lists to check
 - `start_date` (required): start date in yyyy-mm-dd
 - `end_date` (optional): end date in yyyy-mm-dd (default: today)
 
@@ -239,8 +255,8 @@ get tasks completed within a date range across ALL lists — ideal for weekly re
 - daily average
 
 **example usage in claude:**
-> "what did I complete last week?"
-> "summarize my completed tasks since monday"
+> "what did I complete last week on my chores list?"
+> "summarize my completed tasks on my health and financial lists since monday"
 
 ### steps (checklist items)
 

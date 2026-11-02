@@ -9,6 +9,11 @@ dependencies = [
     "python-dateutil>=2.8.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+]
+
 [project.scripts]
 todo-mcp = "todo_mcp.server:run"
 
@@ -18,3 +23,9 @@ packages = ["src/todo_mcp"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = ["-v"]
