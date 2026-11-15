@@ -4,7 +4,7 @@
 
 Microsoft Todo MCP Server - A Python MCP server connecting Claude Desktop to Microsoft Todo via direct Graph API access. Implements 17 tools for task management, list operations, steps (checklist items), recurrence, and cross-list date-based queries.
 
-Modular structure in `src/todo_mcp/`, installable via `uv tool install`.
+Modular structure in `src/todo_mcp/`, installed via `uv tool install` only (no Docker).
 
 ## Project Structure
 
@@ -16,8 +16,9 @@ todo-mcp/
 │       ├── server.py         # FastMCP server, 17 tools, CLI, run()
 │       ├── graph_client.py   # GraphClient class for Microsoft Graph API
 │       └── schema.py         # Dataclasses (TodoList, TodoTask, etc.)
+├── tests/
+│   └── test_due_today.py     # date tools, paging, retries, connection sharing
 ├── pyproject.toml            # Package metadata and dependencies
-├── Dockerfile                # Docker deployment
 ├── README.md                 # User-facing documentation
 ├── CLAUDE.md                 # This file
 └── CHANGELOG.md              # Release notes
@@ -29,7 +30,6 @@ todo-mcp/
 
 - **Microsoft Graph Todo API**: https://learn.microsoft.com/en-us/graph/api/resources/todo-overview
 - **FastMCP**: https://github.com/PrefectHQ/fastmcp - Python MCP server framework
-- **GRAPH_API_REFERENCE.md**: Local documentation of verified API behaviors and bugs
 
 ## Quick Reference
 
@@ -40,7 +40,6 @@ uv tool install --editable .                    # install in dev mode
 todo-mcp --auth --client-id X --client-secret Y # one-time auth
 todo-mcp --client-id X --client-secret Y --refresh-token Z  # run server
 uv run --extra test pytest                      # run tests
-docker build -t todo-mcp:local .                # build docker image
 ```
 
 ### Installation

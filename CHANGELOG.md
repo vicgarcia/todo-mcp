@@ -1,8 +1,11 @@
-## unreleased
+## v3.0.0
 
 **breaking:**
 - `get_tasks_by_due_date_range` and `get_tasks_by_completed_date_range` now require `list_ids` and only read those lists; get ids from `get_lists`
 - `get_tasks_by_due_date_range` leaves overdue tasks out unless `include_overdue` is true
+
+**removed:**
+- docker image and the container build workflow; install with `uv tool install`
 
 **added:**
 - `get_tasks_due_today` - open tasks due today in the given lists
