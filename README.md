@@ -32,7 +32,7 @@ this prints an authorization url. visit it in your browser, authorize the app, p
 
 #### step 3 — configure claude desktop
 
-##### option 1: install with uv
+##### install with uv
 
 ```bash
 uv tool install git+https://github.com/vicgarcia/todo-mcp
@@ -49,25 +49,6 @@ claude desktop config:
         "--client-id", "your-client-id",
         "--client-secret", "your-client-secret",
         "--refresh-token", "your-refresh-token"
-      ]
-    }
-  }
-}
-```
-
-##### option 2: docker
-
-```json
-{
-  "mcpServers": {
-    "todo": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "-e", "TODO_CLIENT_ID=your-client-id",
-        "-e", "TODO_CLIENT_SECRET=your-client-secret",
-        "-e", "TODO_REFRESH_TOKEN=your-refresh-token",
-        "ghcr.io/vicgarcia/todo-mcp:latest"
       ]
     }
   }
@@ -347,20 +328,11 @@ todo-mcp/
 │       ├── server.py         # fastmcp server + 17 tools
 │       ├── graph_client.py   # microsoft graph api client
 │       └── schema.py         # dataclasses
-├── Dockerfile                # docker deployment
 ├── pyproject.toml            # project metadata and dependencies
 ├── README.md
 ├── CLAUDE.md                 # session documentation
 └── CHANGELOG.md
 ```
-
-#### building docker image locally
-
-```bash
-docker build -t todo-mcp:local .
-```
-
-to use the local build in claude desktop, replace `ghcr.io/vicgarcia/todo-mcp:latest` with `todo-mcp:local` in your mcp settings.
 
 ## token lifecycle
 
