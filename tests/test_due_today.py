@@ -9,6 +9,8 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
+from fastmcp.exceptions import ToolError
+
 from todo_mcp import graph_client, server
 from todo_mcp.graph_client import GraphAPIError, GraphClient
 
@@ -100,7 +102,8 @@ def test_today_is_the_local_day_not_utc(graph, monkeypatch):
 
 
 def test_empty_list_ids_is_an_error(graph):
-    assert server.get_tasks_due_today([])['success'] is False
+    with pytest.raises(ToolError):
+        server.get_tasks_due_today([])
 
 
 def test_due_range_covers_only_the_given_lists_and_every_page(graph):
@@ -115,7 +118,8 @@ def test_due_range_covers_only_the_given_lists_and_every_page(graph):
 
 
 def test_due_range_with_empty_list_ids_is_an_error(graph):
-    assert server.get_tasks_by_due_date_range([])['success'] is False
+    with pytest.raises(ToolError):
+        server.get_tasks_by_due_date_range([])
 
 
 def test_due_range_defaults_to_the_local_day(graph, monkeypatch):
@@ -162,9 +166,8 @@ def test_due_range_reports_a_list_it_cannot_read(graph):
         return graph.pages[path]
 
     graph._get = failing_get
-    result = server.get_tasks_by_due_date_range(['a', 'b'])
-    assert result['success'] is False
-    assert '429' in result['error'] or 'slow down' in result['error']
+    with pytest.raises(ToolError, match='429|slow down'):
+        server.get_tasks_by_due_date_range(['a', 'b'])
 
 
 def test_completed_range_covers_only_the_given_lists(graph):
@@ -191,13 +194,13 @@ def test_a_rejected_list_id_is_named_in_the_error(graph):
         raise GraphAPIError(404, 'ErrorItemNotFound', 'not found')
 
     graph._get = not_found
-    result = server.get_tasks_due_today(['missing'])
-    assert result['success'] is False
-    assert 'missing' in result['error']
+    with pytest.raises(ToolError, match='missing'):
+        server.get_tasks_due_today(['missing'])
 
 
 def test_completed_range_with_empty_list_ids_is_an_error(graph):
-    assert server.get_tasks_by_completed_date_range([], start_date='2026-01-01')['success'] is False
+    with pytest.raises(ToolError):
+        server.get_tasks_by_completed_date_range([], start_date='2026-01-01')
 
 
 def test_get_tasks_follows_pages_and_is_not_truncated_when_all_fit(graph):
@@ -241,13 +244,15 @@ def test_update_task_can_clear_the_body(graph):
 
 def test_update_task_rejects_a_blank_title(graph):
     sent = patches(graph)
-    assert server.update_task('t', 'a', title='  ')['success'] is False
+    with pytest.raises(ToolError):
+        server.update_task('t', 'a', title='  ')
     assert sent == []
 
 
 def test_clear_due_date_cannot_be_combined_with_a_new_date(graph):
     sent = patches(graph)
-    assert server.update_task('t', 'a', clear_due_date=True, due_date='2026-01-01')['success'] is False
+    with pytest.raises(ToolError):
+        server.update_task('t', 'a', clear_due_date=True, due_date='2026-01-01')
     assert sent == []
 
 
@@ -345,17 +350,18 @@ def test_writes_retry_when_rate_limited(monkeypatch):
 def test_a_network_failure_comes_back_as_a_normal_tool_error(monkeypatch):
     client, _ = raw_client([httpx.ConnectError('down') for _ in range(GraphClient.MAX_RETRIES + 1)], monkeypatch)
     monkeypatch.setattr(server, '_client', client)
-    result = server.get_lists()
-    assert result['success'] is False
-    assert 'could not reach' in result['error']
+    with pytest.raises(ToolError, match='could not reach'):
+        server.get_lists()
 
 
 def test_bad_update_input_comes_back_as_a_normal_tool_error(graph):
-    assert server.update_step('i', 't', 'a', name='')['success'] is False
+    with pytest.raises(ToolError):
+        server.update_step('i', 't', 'a', name='')
 
 
 def test_an_absurd_date_is_a_normal_tool_error(graph):
-    assert server.get_tasks_by_due_date_range(['a'], start_date='99999999999999999999')['success'] is False
+    with pytest.raises(ToolError):
+        server.get_tasks_by_due_date_range(['a'], start_date='99999999999999999999')
 
 
 def test_rate_limited_requests_are_retried_after_the_given_delay(monkeypatch):

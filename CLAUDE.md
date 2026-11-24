@@ -114,7 +114,7 @@ Verified bugs (tested 2026-03-17):
 
 - **OAuth functions** - get_auth_url, get_token_from_code, bootstrap_token, run_auth_flow
 - **Argument parsing** - parse_args(), _HELP constant
-- **Helper functions** - parse_date, get_client, format_error, format_success
+- **Helper functions** - parse_date, get_client, tool_error, format_success
 - **MCP server + tools** - INSTRUCTIONS, annotation constants, shared argument types, mcp = FastMCP(..., instructions=INSTRUCTIONS), 17 @mcp.tool(annotations=...) definitions
 
 **What clients see.** Set in server.py, not left to a gateway: `INSTRUCTIONS` is passed as the FastMCP server `instructions` and names tools only by their real names; every tool has `ToolAnnotations` (`READ_ONLY`, `ADDS` = not destructive, `CHANGES` = destructive, all `openWorldHint=False`); every argument is `Annotated[..., Field(description=...)]`, so docstrings carry no `args:` block and the schema doesn't depend on the fastmcp version parsing docstrings. `tests/test_tool_metadata.py` enforces this. Docstrings say what a tool returns in a closing sentence ("Returns a dictionary with ..."), not a `Returns:` section, and give examples after "For example:", not an `Example:` section: fastmcp 4 strips those sections from tool descriptions.
@@ -154,12 +154,12 @@ run()
 ### Naming & Style
 
 - Lowercase log messages except proper names (Microsoft, Graph, API)
-- Consistent error responses: `{"error": "message", "success": False}`
+- Errors are raised, not returned: `raise tool_error(e)` raises a fastmcp `ToolError`, so clients get `isError: true`
 - Consistent success responses: `{"success": True, ...data}`
 - Descriptive variable names (`graph_client` not `gc`)
 
 ### Error Handling
 
 - GraphAPIError exception with status_code, error_code, message
-- All tools wrap in try/except and return format_error()
-- Validation errors return early with format_error()
+- All tools wrap in try/except and raise tool_error()
+- Validation errors raise tool_error() early
