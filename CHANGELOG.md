@@ -7,7 +7,7 @@
 - a schema description for every argument, declared with `Field` instead of docstring `args:` blocks, so it no longer depends on the fastmcp version
 
 **changed:**
-- requires `fastmcp>=3.0.0` and declares `pydantic>=2.0`
+- requires `fastmcp>=3.0.0` and declares `pydantic>=2.0`; the lockfile moves to fastmcp 4, as installed
 
 ## v3.0.0
 

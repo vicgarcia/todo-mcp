@@ -273,9 +273,8 @@ def get_lists() -> Dict[str, Any]:
     The list ids are what every other tool takes. For the tasks inside a list, use
     get_tasks.
 
-    Returns:
-        Dictionary with the lists, each with its list_id, name, and whether it is owned
-        or shared
+    Returns a dictionary with the lists, each with its list_id, name, and whether it is
+    owned or shared.
     '''
     try:
         with get_client() as client:
@@ -294,8 +293,7 @@ def create_list(name: Annotated[str, Field(description='the name of the new list
     '''
     Create a new task list.
 
-    Returns:
-        Dictionary with the created list and its list_id
+    Returns a dictionary with the created list and its list_id.
     '''
     try:
         if not name or not name.strip():
@@ -320,8 +318,7 @@ def update_list(
     '''
     Rename a task list. The tasks in it are unchanged.
 
-    Returns:
-        Dictionary with the renamed list
+    Returns a dictionary with the renamed list.
     '''
     try:
         if not list_id or not list_id.strip():
@@ -347,8 +344,7 @@ def delete_list(list_id: ListId) -> Dict[str, Any]:
 
     Only when the user asks to delete the list, and confirm its name with the user first.
 
-    Returns:
-        Dictionary confirming the deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not list_id or not list_id.strip():
@@ -382,9 +378,8 @@ def get_tasks(
     across several lists, use get_tasks_due_today, get_tasks_by_due_date_range or
     get_tasks_by_completed_date_range. Steps are not included; use get_steps for those.
 
-    Returns:
-        Dictionary with the tasks, each with its task_id and list_id, and truncated true
-        if the list holds more than limit
+    Returns a dictionary with the tasks, each with its task_id and list_id, and truncated
+    true if the list holds more than limit.
     '''
     try:
         if not list_id or not list_id.strip():
@@ -451,8 +446,7 @@ def create_task(
             recurrence_days_of_week=['monday', 'wednesday', 'friday']
         the 15th of each month: recurrence_type='monthly', recurrence_day_of_month=15
 
-    Returns:
-        Dictionary with the created task and its task_id
+    Returns a dictionary with the created task and its task_id.
     '''
     try:
         if not title or not title.strip():
@@ -551,8 +545,7 @@ def update_task(
     Only the arguments given change; new values replace the old ones. To mark a task done,
     use complete_task.
 
-    Returns:
-        Dictionary with the updated task
+    Returns a dictionary with the updated task.
     '''
     try:
         if not task_id or not task_id.strip():
@@ -643,8 +636,7 @@ def complete_task(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
 
     Use this when the user says a task is done, not delete_task.
 
-    Returns:
-        Dictionary with the completed task
+    Returns a dictionary with the completed task.
     '''
     try:
         if not task_id or not task_id.strip():
@@ -670,8 +662,7 @@ def delete_task(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
 
     To mark it done instead, use complete_task. Only when the user asks to delete it.
 
-    Returns:
-        Dictionary confirming the deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not task_id or not task_id.strip():
@@ -721,9 +712,8 @@ def get_tasks_by_due_date_range(
         list_ids=['abc', 'def'], start_date='2026-03-17', end_date='2026-03-23' -> due that week
         list_ids=['abc'], include_overdue=True -> due today, and everything overdue
 
-    Returns:
-        Dictionary with the tasks grouped as overdue, in_range and no_due_date, each with
-        its task_id, list_id and list_name
+    Returns a dictionary with the tasks grouped as overdue, in_range and no_due_date, each
+    with its task_id, list_id and list_name.
     '''
     try:
         if not list_ids:
@@ -802,9 +792,8 @@ def get_tasks_due_today(list_ids: ListIds) -> Dict[str, Any]:
     Overdue tasks are left out; for those, use get_tasks_by_due_date_range with
     include_overdue.
 
-    Returns:
-        Dictionary with today's date, the count, and the tasks, each with its task_id,
-        list_id and list_name
+    Returns a dictionary with today's date, the count, and the tasks, each with its
+    task_id, list_id and list_name.
     '''
     try:
         if not list_ids:
@@ -847,9 +836,8 @@ def get_tasks_by_completed_date_range(
         list_ids=['abc'], start_date='2026-03-10' -> done since march 10
         list_ids=['abc', 'def'], start_date='2026-03-01', end_date='2026-03-07' -> done that week
 
-    Returns:
-        Dictionary with total_completed, the tasks grouped by list (by_list), and how many
-        were done each day (by_day)
+    Returns a dictionary with total_completed, the tasks grouped by list (by_list), and how
+    many were done each day (by_day).
     '''
     try:
         if not list_ids:
@@ -925,8 +913,7 @@ def get_steps(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
 
     The other tools don't show steps.
 
-    Returns:
-        Dictionary with the steps, each with its item_id, name and is_checked
+    Returns a dictionary with the steps, each with its item_id, name and is_checked.
     '''
     try:
         if not task_id or not task_id.strip():
@@ -956,8 +943,7 @@ def create_step(
     '''
     Add a step to a task's checklist.
 
-    Returns:
-        Dictionary with the created step and its item_id
+    Returns a dictionary with the created step and its item_id.
     '''
     try:
         if not task_id or not task_id.strip():
@@ -993,8 +979,7 @@ def update_step(
 
     Only the arguments given change.
 
-    Returns:
-        Dictionary with the updated step
+    Returns a dictionary with the updated step.
     '''
     try:
         if not item_id or not item_id.strip():
@@ -1030,8 +1015,7 @@ def complete_step(item_id: StepId, task_id: StepTaskId, list_id: TaskListId) -> 
 
     Use this when the user says a step is done, not delete_step.
 
-    Returns:
-        Dictionary with the completed step
+    Returns a dictionary with the completed step.
     '''
     try:
         if not item_id or not item_id.strip():
@@ -1059,8 +1043,7 @@ def delete_step(item_id: StepId, task_id: StepTaskId, list_id: TaskListId) -> Di
 
     To check it off instead, use complete_step. Only when the user asks to delete it.
 
-    Returns:
-        Dictionary confirming the deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not item_id or not item_id.strip():

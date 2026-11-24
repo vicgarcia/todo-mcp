@@ -117,7 +117,7 @@ Verified bugs (tested 2026-03-17):
 - **Helper functions** - parse_date, get_client, format_error, format_success
 - **MCP server + tools** - INSTRUCTIONS, annotation constants, shared argument types, mcp = FastMCP(..., instructions=INSTRUCTIONS), 17 @mcp.tool(annotations=...) definitions
 
-**What clients see.** Set in server.py, not left to a gateway: `INSTRUCTIONS` is passed as the FastMCP server `instructions` and names tools only by their real names; every tool has `ToolAnnotations` (`READ_ONLY`, `ADDS` = not destructive, `CHANGES` = destructive, all `openWorldHint=False`); every argument is `Annotated[..., Field(description=...)]`, so docstrings carry no `args:` block and the schema doesn't depend on the fastmcp version parsing docstrings. `tests/test_tool_metadata.py` enforces this.
+**What clients see.** Set in server.py, not left to a gateway: `INSTRUCTIONS` is passed as the FastMCP server `instructions` and names tools only by their real names; every tool has `ToolAnnotations` (`READ_ONLY`, `ADDS` = not destructive, `CHANGES` = destructive, all `openWorldHint=False`); every argument is `Annotated[..., Field(description=...)]`, so docstrings carry no `args:` block and the schema doesn't depend on the fastmcp version parsing docstrings. `tests/test_tool_metadata.py` enforces this. Docstrings say what a tool returns in a closing sentence ("Returns a dictionary with ..."), not a `Returns:` section, and give examples after "For example:", not an `Example:` section: fastmcp 4 strips those sections from tool descriptions.
 - **Entry point** - run(), if __name__ == '__main__'
 
 ### Entry Point Flow

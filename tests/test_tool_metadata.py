@@ -74,3 +74,9 @@ def test_no_account_specific_list_ids(tools):
     # the user's own list ids are added by the gateway, not baked into the server
     text = server.mcp.instructions + ''.join(tool.description for tool in tools)
     assert 'AQMk' not in text
+
+
+def test_descriptions_say_what_each_tool_returns(tools):
+    # in prose, not a Returns: section, which fastmcp 4 strips from descriptions
+    for tool in tools:
+        assert 'Returns ' in tool.description, tool.name
