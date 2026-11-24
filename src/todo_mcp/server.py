@@ -9,12 +9,15 @@ import logging
 import os
 import time
 from datetime import date, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Annotated, Any, Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from dateutil import parser as date_parser
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from todo_mcp.graph_client import GraphAPIError, GraphClient
 from todo_mcp.schema import DateTimeTimeZone, Recurrence, RecurrencePattern, TodoTask
@@ -201,9 +204,9 @@ def tasks_in_lists(
     return tasks
 
 
-def format_error(error: Exception) -> Dict[str, Any]:
-    '''format an error response.'''
-    return {'error': str(error), 'success': False}
+def tool_error(error: Exception) -> ToolError:
+    '''a tool error to raise, so the client sees the call failed.'''
+    return ToolError(str(error))
 
 
 def format_success(data: Dict[str, Any], message: Optional[str] = None) -> Dict[str, Any]:
@@ -218,20 +221,61 @@ def format_success(data: Dict[str, Any], message: Optional[str] = None) -> Dict[
 # mcp server and tools
 # =============================================================================
 
-mcp = FastMCP('todo MCP')
+# guidance sent to clients as the server instructions
+
+INSTRUCTIONS = '''
+these tools work on the user's microsoft to do task lists. get_lists returns the lists
+themselves, with the list ids the other tools need. get_tasks returns the tasks inside one
+list; it and the tools that find tasks by date give the task ids. a task can have steps, a
+checklist inside it, which only get_steps shows; it gives the step ids. dates are YYYY-MM-DD.
+
+common workflows:
+- the user asks about their tasks for the day: use get_tasks_due_today.
+- the user asks what's coming up, due this week, or overdue: use get_tasks_by_due_date_range,
+  with include_overdue for tasks whose due date has passed.
+- the user asks what they got done: use get_tasks_by_completed_date_range.
+- the user says a task is done: use complete_task, not delete_task. for a step, complete_step.
+
+deleting is permanent and can't be undone. use delete_task, delete_step or delete_list only
+when the user asks to delete, never to tidy up, and confirm the name with the user before
+deleting a list, since that deletes every task in it.
+'''
+
+# tool annotations: whether a tool only reads, and whether a write can overwrite or remove
+# existing data. every tool works on the user's own task lists, so none is open world.
+
+READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+ADDS = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+CHANGES = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
+# argument descriptions shared by several tools
+
+ListId = Annotated[str, Field(description='the list id, from get_lists')]
+ListIds = Annotated[List[str], Field(description='the ids of the lists to check, from get_lists')]
+TaskId = Annotated[str, Field(
+    description='the task id, from get_tasks or the tools that find tasks by date'
+)]
+TaskListId = Annotated[str, Field(description='the list the task is in, its list_id')]
+StepId = Annotated[str, Field(description='the step id, from get_steps')]
+StepTaskId = Annotated[str, Field(description='the task the step is in')]
+
+mcp = FastMCP('todo MCP', instructions=INSTRUCTIONS)
 
 
 # -----------------------------------------------------------------------------
 # list management tools
 # -----------------------------------------------------------------------------
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def get_lists() -> Dict[str, Any]:
     '''
-    retrieve all microsoft todo task lists.
+    List the user's task lists themselves, with their ids.
 
-    returns:
-        dictionary containing all task lists with their ids and names
+    The list ids are what every other tool takes. For the tasks inside a list, use
+    get_tasks.
+
+    Returns a dictionary with the lists, each with its list_id, name, and whether it is
+    owned or shared.
     '''
     try:
         with get_client() as client:
@@ -242,23 +286,19 @@ def get_lists() -> Dict[str, Any]:
             })
     except GraphAPIError as e:
         logger.error(f'error retrieving lists: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def create_list(name: str) -> Dict[str, Any]:
+@mcp.tool(annotations=ADDS)
+def create_list(name: Annotated[str, Field(description='the name of the new list')]) -> Dict[str, Any]:
     '''
-    create a new task list.
+    Create a new task list.
 
-    args:
-        name: the name for the new list (required)
-
-    returns:
-        dictionary containing the created list
+    Returns a dictionary with the created list and its list_id.
     '''
     try:
         if not name or not name.strip():
-            return format_error(ValueError('name is required'))
+            raise tool_error(ValueError('name is required'))
 
         with get_client() as client:
             lst = client.create_list(name.strip())
@@ -268,26 +308,24 @@ def create_list(name: str) -> Dict[str, Any]:
             }, message='list created successfully')
     except GraphAPIError as e:
         logger.error(f'error creating list: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def update_list(list_id: str, name: str) -> Dict[str, Any]:
+@mcp.tool(annotations=CHANGES)
+def update_list(
+    list_id: ListId,
+    name: Annotated[str, Field(description='the new name')],
+) -> Dict[str, Any]:
     '''
-    rename a task list.
+    Rename a task list. The tasks in it are unchanged.
 
-    args:
-        list_id: the id of the list to rename (required)
-        name: the new name for the list (required)
-
-    returns:
-        dictionary containing the updated list
+    Returns a dictionary with the renamed list.
     '''
     try:
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if not name or not name.strip():
-            return format_error(ValueError('name is required'))
+            raise tool_error(ValueError('name is required'))
 
         with get_client() as client:
             lst = client.update_list(list_id.strip(), name.strip())
@@ -297,23 +335,21 @@ def update_list(list_id: str, name: str) -> Dict[str, Any]:
             }, message='list renamed successfully')
     except GraphAPIError as e:
         logger.error(f'error updating list: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def delete_list(list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=CHANGES)
+def delete_list(list_id: ListId) -> Dict[str, Any]:
     '''
-    delete a task list permanently.
+    Delete a task list permanently, with every task in it. This can't be undone.
 
-    args:
-        list_id: the id of the list to delete (required)
+    Only when the user asks to delete the list, and confirm its name with the user first.
 
-    returns:
-        dictionary confirming deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             client.delete_list(list_id.strip())
@@ -323,35 +359,34 @@ def delete_list(list_id: str) -> Dict[str, Any]:
             }, message='list deleted successfully')
     except GraphAPIError as e:
         logger.error(f'error deleting list: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
 # -----------------------------------------------------------------------------
 # task management tools
 # -----------------------------------------------------------------------------
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def get_tasks(
-    list_id: str,
-    status: str = 'not_completed',
-    limit: int = 100
+    list_id: ListId,
+    status: Annotated[str, Field(description='one of not_completed, completed, all')] = 'not_completed',
+    limit: Annotated[int, Field(description='how many to return, from 1 to 1000')] = 100,
 ) -> Dict[str, Any]:
     '''
-    retrieve tasks from a task list.
+    List the tasks inside one task list, open tasks by default.
 
-    args:
-        list_id: the id of the task list (required)
-        status: filter by status - 'not_completed' (default), 'completed', or 'all'
-        limit: maximum number of tasks to return (default: 100, max: 1000)
+    For the lists themselves, use get_lists. To find tasks by due or completed date
+    across several lists, use get_tasks_due_today, get_tasks_by_due_date_range or
+    get_tasks_by_completed_date_range. Steps are not included; use get_steps for those.
 
-    returns:
-        dictionary containing the tasks, with truncated true if the list holds more than limit
+    Returns a dictionary with the tasks, each with its task_id and list_id, and truncated
+    true if the list holds more than limit.
     '''
     try:
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if limit <= 0 or limit > 1000:
-            return format_error(ValueError('limit must be between 1 and 1000'))
+            raise tool_error(ValueError('limit must be between 1 and 1000'))
 
         filter_map = {
             'not_completed': "status ne 'completed'",
@@ -360,7 +395,7 @@ def get_tasks(
         }
         filter_ = filter_map.get(status)
         if status not in filter_map:
-            return format_error(ValueError(
+            raise tool_error(ValueError(
                 f"invalid status '{status}'. use 'not_completed', 'completed', or 'all'"
             ))
 
@@ -376,80 +411,80 @@ def get_tasks(
             })
     except GraphAPIError as e:
         logger.error(f'error retrieving tasks: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
+@mcp.tool(annotations=ADDS)
 def create_task(
-    title: str,
-    list_id: str,
-    due_date: Optional[str] = None,
-    body_text: Optional[str] = None,
-    importance: str = 'normal',
-    recurrence_type: Optional[str] = None,
-    recurrence_interval: int = 1,
-    recurrence_days_of_week: Optional[List[str]] = None,
-    recurrence_day_of_month: Optional[int] = None,
+    title: Annotated[str, Field(description='the task, in the words the user wants recorded')],
+    list_id: ListId,
+    due_date: Annotated[Optional[str], Field(
+        description='the due date, as YYYY-MM-DD; required for recurrence'
+    )] = None,
+    body_text: Annotated[Optional[str], Field(description='notes on the task')] = None,
+    importance: Annotated[str, Field(description='one of low, normal, high')] = 'normal',
+    recurrence_type: Annotated[Optional[str], Field(
+        description='one of daily, weekly, monthly, to make the task repeat'
+    )] = None,
+    recurrence_interval: Annotated[int, Field(
+        description='repeat every this many days, weeks or months'
+    )] = 1,
+    recurrence_days_of_week: Annotated[Optional[List[str]], Field(
+        description='for weekly, lowercase day names, e.g. ["monday", "friday"]'
+    )] = None,
+    recurrence_day_of_month: Annotated[Optional[int], Field(
+        description='for monthly, the day from 1 to 31'
+    )] = None,
 ) -> Dict[str, Any]:
     '''
-    create a new task with optional recurrence.
+    Add a task to a task list, optionally with a due date, notes, importance or recurrence.
 
-    args:
-        title: task title (required)
-        list_id: the id of the task list (required)
-        due_date: due date in yyyy-mm-dd format (optional, required for recurrence)
-        body_text: additional notes or description (optional)
-        importance: priority level - 'low', 'normal' (default), or 'high'
-        recurrence_type: 'daily', 'weekly', or 'monthly' (optional)
-        recurrence_interval: repeat every N days/weeks/months (default: 1)
-        recurrence_days_of_week: for weekly, e.g. ['monday', 'friday'] (optional)
-        recurrence_day_of_month: for monthly, day of month 1-31 (optional)
+    A repeating task needs a due_date, the first day it is due. For example:
 
-    returns:
-        dictionary containing the created task
-
-    examples:
-        daily task: recurrence_type='daily', recurrence_interval=1
+        every day: recurrence_type='daily'
         every 3 weeks: recurrence_type='daily', recurrence_interval=21
-        mon/wed/fri: recurrence_type='weekly', recurrence_days_of_week=['monday','wednesday','friday']
-        15th monthly: recurrence_type='monthly', recurrence_day_of_month=15
+        monday, wednesday and friday: recurrence_type='weekly',
+            recurrence_days_of_week=['monday', 'wednesday', 'friday']
+        the 15th of each month: recurrence_type='monthly', recurrence_day_of_month=15
+
+    Returns a dictionary with the created task and its task_id.
     '''
     try:
         if not title or not title.strip():
-            return format_error(ValueError('title is required'))
+            raise tool_error(ValueError('title is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if importance not in ('low', 'normal', 'high'):
-            return format_error(ValueError("importance must be 'low', 'normal', or 'high'"))
+            raise tool_error(ValueError("importance must be 'low', 'normal', or 'high'"))
 
         parsed_due = None
         if due_date:
             try:
                 parsed_due = parse_date(due_date)
             except (ValueError, TypeError):
-                return format_error(ValueError(f'invalid due_date format: {due_date}'))
+                raise tool_error(ValueError(f'invalid due_date format: {due_date}'))
 
         recurrence = None
         if recurrence_type:
             if not parsed_due:
-                return format_error(ValueError('due_date is required for recurring tasks'))
+                raise tool_error(ValueError('due_date is required for recurring tasks'))
 
             if recurrence_type == 'daily':
                 pattern = RecurrencePattern.daily(recurrence_interval)
             elif recurrence_type == 'weekly':
                 if not recurrence_days_of_week:
-                    return format_error(ValueError(
+                    raise tool_error(ValueError(
                         'recurrence_days_of_week required for weekly recurrence'
                     ))
                 pattern = RecurrencePattern.weekly(recurrence_days_of_week, recurrence_interval)
             elif recurrence_type == 'monthly':
                 if not recurrence_day_of_month:
-                    return format_error(ValueError(
+                    raise tool_error(ValueError(
                         'recurrence_day_of_month required for monthly recurrence'
                     ))
                 pattern = RecurrencePattern.monthly(recurrence_day_of_month, recurrence_interval)
             else:
-                return format_error(ValueError(
+                raise tool_error(ValueError(
                     f"invalid recurrence_type '{recurrence_type}'. "
                     "use 'daily', 'weekly', or 'monthly'"
                 ))
@@ -471,68 +506,70 @@ def create_task(
             }, message='task created successfully')
     except GraphAPIError as e:
         logger.error(f'error creating task: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
+@mcp.tool(annotations=CHANGES)
 def update_task(
-    task_id: str,
-    list_id: str,
-    title: Optional[str] = None,
-    due_date: Optional[str] = None,
-    body_text: Optional[str] = None,
-    importance: Optional[str] = None,
-    status: Optional[str] = None,
-    recurrence_type: Optional[str] = None,
-    recurrence_interval: int = 1,
-    recurrence_days_of_week: Optional[List[str]] = None,
-    recurrence_day_of_month: Optional[int] = None,
-    remove_recurrence: bool = False,
-    clear_due_date: bool = False,
+    task_id: TaskId,
+    list_id: TaskListId,
+    title: Annotated[Optional[str], Field(description="the new title; it can't be blank")] = None,
+    due_date: Annotated[Optional[str], Field(description='the new due date, as YYYY-MM-DD')] = None,
+    body_text: Annotated[Optional[str], Field(
+        description='new notes, replacing the existing notes; an empty string removes them'
+    )] = None,
+    importance: Annotated[Optional[str], Field(description='one of low, normal, high')] = None,
+    status: Annotated[Optional[str], Field(
+        description='one of notStarted, inProgress, completed, waitingOnOthers, deferred'
+    )] = None,
+    recurrence_type: Annotated[Optional[str], Field(
+        description='one of daily, weekly, monthly, to make the task repeat or change how'
+    )] = None,
+    recurrence_interval: Annotated[int, Field(
+        description='repeat every this many days, weeks or months'
+    )] = 1,
+    recurrence_days_of_week: Annotated[Optional[List[str]], Field(
+        description='for weekly, lowercase day names, e.g. ["monday", "friday"]'
+    )] = None,
+    recurrence_day_of_month: Annotated[Optional[int], Field(
+        description='for monthly, the day from 1 to 31'
+    )] = None,
+    remove_recurrence: Annotated[bool, Field(description='true to stop the task repeating')] = False,
+    clear_due_date: Annotated[bool, Field(
+        description="true to remove the due date; can't be combined with due_date or recurrence_type"
+    )] = False,
 ) -> Dict[str, Any]:
     '''
-    update properties of an existing task.
+    Change a task's title, due date, notes, importance, status or recurrence, or remove its
+    due date or notes.
 
-    args:
-        task_id: the id of the task (required)
-        list_id: the id of the task list (required)
-        title: new task title, can't be blank (optional)
-        due_date: new due date in yyyy-mm-dd format (optional)
-        body_text: new notes or description, an empty string clears them (optional)
-        importance: 'low', 'normal', or 'high' (optional)
-        status: 'notStarted', 'inProgress', 'completed', 'waitingOnOthers', 'deferred' (optional)
-        recurrence_type: 'daily', 'weekly', or 'monthly' to set/change recurrence (optional)
-        recurrence_interval: repeat every N days/weeks/months (default: 1)
-        recurrence_days_of_week: for weekly recurrence (optional)
-        recurrence_day_of_month: for monthly recurrence (optional)
-        remove_recurrence: set True to remove recurrence from task (default: False)
-        clear_due_date: set True to remove the due date from task (default: False)
+    Only the arguments given change; new values replace the old ones. To mark a task done,
+    use complete_task.
 
-    returns:
-        dictionary containing the updated task
+    Returns a dictionary with the updated task.
     '''
     try:
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if title is not None and not title.strip():
-            return format_error(ValueError("title can't be blank"))
+            raise tool_error(ValueError("title can't be blank"))
         if clear_due_date and (due_date or recurrence_type):
-            return format_error(ValueError("clear_due_date can't be combined with due_date or recurrence_type"))
+            raise tool_error(ValueError("clear_due_date can't be combined with due_date or recurrence_type"))
         if importance is not None and importance not in ('low', 'normal', 'high'):
-            return format_error(ValueError("importance must be 'low', 'normal', or 'high'"))
+            raise tool_error(ValueError("importance must be 'low', 'normal', or 'high'"))
         if status is not None:
             valid_statuses = ('notStarted', 'inProgress', 'completed', 'waitingOnOthers', 'deferred')
             if status not in valid_statuses:
-                return format_error(ValueError(f"invalid status. valid values: {', '.join(valid_statuses)}"))
+                raise tool_error(ValueError(f"invalid status. valid values: {', '.join(valid_statuses)}"))
 
         parsed_due = None
         if due_date:
             try:
                 parsed_due = parse_date(due_date)
             except (ValueError, TypeError):
-                return format_error(ValueError(f'invalid due_date format: {due_date}'))
+                raise tool_error(ValueError(f'invalid due_date format: {due_date}'))
 
         recurrence = None
         if recurrence_type and not remove_recurrence:
@@ -540,18 +577,18 @@ def update_task(
                 pattern = RecurrencePattern.daily(recurrence_interval)
             elif recurrence_type == 'weekly':
                 if not recurrence_days_of_week:
-                    return format_error(ValueError(
+                    raise tool_error(ValueError(
                         'recurrence_days_of_week required for weekly recurrence'
                     ))
                 pattern = RecurrencePattern.weekly(recurrence_days_of_week, recurrence_interval)
             elif recurrence_type == 'monthly':
                 if not recurrence_day_of_month:
-                    return format_error(ValueError(
+                    raise tool_error(ValueError(
                         'recurrence_day_of_month required for monthly recurrence'
                     ))
                 pattern = RecurrencePattern.monthly(recurrence_day_of_month, recurrence_interval)
             else:
-                return format_error(ValueError(
+                raise tool_error(ValueError(
                     f"invalid recurrence_type '{recurrence_type}'. "
                     "use 'daily', 'weekly', or 'monthly'"
                 ))
@@ -569,7 +606,7 @@ def update_task(
             clear_due_date,
         ])
         if not has_updates:
-            return format_error(ValueError('no updates provided'))
+            raise tool_error(ValueError('no updates provided'))
 
         with get_client() as client:
             task = client.update_task(
@@ -590,26 +627,23 @@ def update_task(
             })
     except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating task {task_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def complete_task(task_id: str, list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=ADDS)
+def complete_task(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
     '''
-    mark a task as completed.
+    Mark a task as completed.
 
-    args:
-        task_id: the id of the task (required)
-        list_id: the id of the task list (required)
+    Use this when the user says a task is done, not delete_task.
 
-    returns:
-        dictionary containing the completed task
+    Returns a dictionary with the completed task.
     '''
     try:
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             task = client.complete_task(list_id.strip(), task_id.strip())
@@ -619,26 +653,23 @@ def complete_task(task_id: str, list_id: str) -> Dict[str, Any]:
             }, message='task marked as completed')
     except GraphAPIError as e:
         logger.error(f'error completing task {task_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def delete_task(task_id: str, list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=CHANGES)
+def delete_task(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
     '''
-    delete a task permanently.
+    Delete a task permanently, with its steps. This can't be undone.
 
-    args:
-        task_id: the id of the task (required)
-        list_id: the id of the task list (required)
+    To mark it done instead, use complete_task. Only when the user asks to delete it.
 
-    returns:
-        dictionary confirming deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             client.delete_task(list_id.strip(), task_id.strip())
@@ -648,42 +679,46 @@ def delete_task(task_id: str, list_id: str) -> Dict[str, Any]:
             }, message='task deleted successfully')
     except GraphAPIError as e:
         logger.error(f'error deleting task {task_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
 # -----------------------------------------------------------------------------
 # cross-list view tools
 # -----------------------------------------------------------------------------
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def get_tasks_by_due_date_range(
-    list_ids: List[str],
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    include_overdue: bool = False,
-    include_no_due_date: bool = False,
+    list_ids: ListIds,
+    start_date: Annotated[Optional[str], Field(
+        description='the first day, as YYYY-MM-DD; today if left out'
+    )] = None,
+    end_date: Annotated[Optional[str], Field(
+        description='the last day, as YYYY-MM-DD; the same as start_date if left out'
+    )] = None,
+    include_overdue: Annotated[bool, Field(
+        description='true to also include open tasks whose due date is before today'
+    )] = False,
+    include_no_due_date: Annotated[bool, Field(
+        description='true to also include open tasks with no due date'
+    )] = False,
 ) -> Dict[str, Any]:
     '''
-    get open tasks due within a date range from specific lists.
+    Find open tasks due between two dates in the given lists.
 
-    args:
-        list_ids: the ids of the lists to check (required)
-        start_date: start of date range (yyyy-mm-dd), defaults to today
-        end_date: end of date range (yyyy-mm-dd), defaults to start_date
-        include_overdue: also return tasks due before today (default: False)
-        include_no_due_date: include tasks without a due date (default: False)
+    Use it for what's coming up, due this week, or overdue. With no dates it finds the
+    tasks due today. For example:
 
-    returns:
-        dictionary with tasks grouped by category (overdue, in_range, no_due_date)
+        list_ids=['abc'] -> due today
+        list_ids=['abc'], start_date='2026-03-18' -> due on march 18
+        list_ids=['abc', 'def'], start_date='2026-03-17', end_date='2026-03-23' -> due that week
+        list_ids=['abc'], include_overdue=True -> due today, and everything overdue
 
-    examples:
-        get_tasks_by_due_date_range(list_ids=['abc']) -> today's tasks
-        get_tasks_by_due_date_range(list_ids=['abc'], start_date='2026-03-18') -> tomorrow's tasks
-        get_tasks_by_due_date_range(list_ids=['abc', 'def'], start_date='2026-03-17', end_date='2026-03-23') -> this week
+    Returns a dictionary with the tasks grouped as overdue, in_range and no_due_date, each
+    with its task_id, list_id and list_name.
     '''
     try:
         if not list_ids:
-            return format_error(ValueError('list_ids is required'))
+            raise tool_error(ValueError('list_ids is required'))
 
         # the machine's local day, so this stays right in the evening when utc has moved on
         today = date.today()
@@ -692,7 +727,7 @@ def get_tasks_by_due_date_range(
             try:
                 start = parse_date(start_date)
             except (ValueError, TypeError):
-                return format_error(ValueError(f'invalid start_date format: {start_date}'))
+                raise tool_error(ValueError(f'invalid start_date format: {start_date}'))
         else:
             start = today
 
@@ -700,12 +735,12 @@ def get_tasks_by_due_date_range(
             try:
                 end = parse_date(end_date)
             except (ValueError, TypeError):
-                return format_error(ValueError(f'invalid end_date format: {end_date}'))
+                raise tool_error(ValueError(f'invalid end_date format: {end_date}'))
         else:
             end = start
 
         if end < start:
-            return format_error(ValueError('end_date must be >= start_date'))
+            raise tool_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
             open_tasks = tasks_in_lists(client, list_ids, client.get_open_tasks)
@@ -747,23 +782,23 @@ def get_tasks_by_due_date_range(
         return format_success(result)
     except GraphAPIError as e:
         logger.error(f'error getting tasks by due date range: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
+@mcp.tool(annotations=READ_ONLY)
+def get_tasks_due_today(list_ids: ListIds) -> Dict[str, Any]:
     '''
-    get open tasks due today from specific lists. overdue tasks are not included.
+    Find open tasks due today in the given lists.
 
-    args:
-        list_ids: the ids of the lists to check (required)
+    Overdue tasks are left out; for those, use get_tasks_by_due_date_range with
+    include_overdue.
 
-    returns:
-        dictionary with today's date, the count, and the tasks with their list names
+    Returns a dictionary with today's date, the count, and the tasks, each with its
+    task_id, list_id and list_name.
     '''
     try:
         if not list_ids:
-            return format_error(ValueError('list_ids is required'))
+            raise tool_error(ValueError('list_ids is required'))
 
         # the machine's local day, so this stays right in the evening when utc has moved on
         today = date.today()
@@ -783,52 +818,48 @@ def get_tasks_due_today(list_ids: List[str]) -> Dict[str, Any]:
         })
     except GraphAPIError as e:
         logger.error(f'error getting tasks due today: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
+@mcp.tool(annotations=READ_ONLY)
 def get_tasks_by_completed_date_range(
-    list_ids: List[str],
-    start_date: str,
-    end_date: Optional[str] = None,
+    list_ids: ListIds,
+    start_date: Annotated[str, Field(description='the first day, as YYYY-MM-DD')],
+    end_date: Annotated[Optional[str], Field(
+        description='the last day, as YYYY-MM-DD; today if left out'
+    )] = None,
 ) -> Dict[str, Any]:
     '''
-    get tasks completed within a date range from specific lists.
+    Find tasks completed between two dates in the given lists.
 
-    uses server-side filtering for efficiency. ideal for weekly reporting.
+    Use it for what the user got done, such as a weekly review. For example:
 
-    args:
-        list_ids: the ids of the lists to check (required)
-        start_date: start of date range (yyyy-mm-dd), required
-        end_date: end of date range (yyyy-mm-dd), defaults to today
+        list_ids=['abc'], start_date='2026-03-10' -> done since march 10
+        list_ids=['abc', 'def'], start_date='2026-03-01', end_date='2026-03-07' -> done that week
 
-    returns:
-        dictionary with completed tasks grouped by list, with summary stats
-
-    examples:
-        get_tasks_by_completed_date_range(list_ids=['abc'], start_date='2026-03-10') -> completed since march 10
-        get_tasks_by_completed_date_range(list_ids=['abc', 'def'], start_date='2026-03-01', end_date='2026-03-07') -> first week
+    Returns a dictionary with total_completed, the tasks grouped by list (by_list), and how
+    many were done each day (by_day).
     '''
     try:
         if not list_ids:
-            return format_error(ValueError('list_ids is required'))
+            raise tool_error(ValueError('list_ids is required'))
 
         try:
             start = parse_date(start_date)
         except (ValueError, TypeError):
-            return format_error(ValueError(f'invalid start_date format: {start_date}'))
+            raise tool_error(ValueError(f'invalid start_date format: {start_date}'))
 
         if end_date:
             try:
                 end = parse_date(end_date)
             except (ValueError, TypeError):
-                return format_error(ValueError(f'invalid end_date format: {end_date}'))
+                raise tool_error(ValueError(f'invalid end_date format: {end_date}'))
         else:
             # the machine's local day, so this stays right in the evening when utc has moved on
             end = date.today()
 
         if end < start:
-            return format_error(ValueError('end_date must be >= start_date'))
+            raise tool_error(ValueError('end_date must be >= start_date'))
 
         with get_client() as client:
             tasks = tasks_in_lists(
@@ -869,30 +900,27 @@ def get_tasks_by_completed_date_range(
         })
     except GraphAPIError as e:
         logger.error(f'error getting completed tasks: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
 # -----------------------------------------------------------------------------
 # step (checklist item) tools
 # -----------------------------------------------------------------------------
 
-@mcp.tool
-def get_steps(task_id: str, list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=READ_ONLY)
+def get_steps(task_id: TaskId, list_id: TaskListId) -> Dict[str, Any]:
     '''
-    get all steps (checklist items) for a task.
+    List a task's steps, the checklist inside it, with whether each is checked off.
 
-    args:
-        task_id: the id of the parent task (required)
-        list_id: the id of the task list (required)
+    The other tools don't show steps.
 
-    returns:
-        dictionary containing the steps
+    Returns a dictionary with the steps, each with its item_id, name and is_checked.
     '''
     try:
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             items = client.get_checklist_items(list_id.strip(), task_id.strip())
@@ -904,29 +932,27 @@ def get_steps(task_id: str, list_id: str) -> Dict[str, Any]:
             })
     except GraphAPIError as e:
         logger.error(f'error getting steps: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def create_step(task_id: str, list_id: str, name: str) -> Dict[str, Any]:
+@mcp.tool(annotations=ADDS)
+def create_step(
+    task_id: TaskId,
+    list_id: TaskListId,
+    name: Annotated[str, Field(description='the step, in the words the user wants recorded')],
+) -> Dict[str, Any]:
     '''
-    create a new step (checklist item) for a task.
+    Add a step to a task's checklist.
 
-    args:
-        task_id: the id of the parent task (required)
-        list_id: the id of the task list (required)
-        name: the step name/description (required)
-
-    returns:
-        dictionary containing the created step
+    Returns a dictionary with the created step and its item_id.
     '''
     try:
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if not name or not name.strip():
-            return format_error(ValueError('name is required'))
+            raise tool_error(ValueError('name is required'))
 
         with get_client() as client:
             item = client.create_checklist_item(list_id.strip(), task_id.strip(), name.strip())
@@ -936,39 +962,35 @@ def create_step(task_id: str, list_id: str, name: str) -> Dict[str, Any]:
             }, message='step created successfully')
     except GraphAPIError as e:
         logger.error(f'error creating step: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
+@mcp.tool(annotations=CHANGES)
 def update_step(
-    item_id: str,
-    task_id: str,
-    list_id: str,
-    name: Optional[str] = None,
-    is_checked: Optional[bool] = None,
+    item_id: StepId,
+    task_id: StepTaskId,
+    list_id: TaskListId,
+    name: Annotated[Optional[str], Field(description='new text for the step')] = None,
+    is_checked: Annotated[Optional[bool], Field(
+        description='true to check it off, false to uncheck it'
+    )] = None,
 ) -> Dict[str, Any]:
     '''
-    update a step (checklist item).
+    Rename a step, or check or uncheck it.
 
-    args:
-        item_id: the id of the step (required)
-        task_id: the id of the parent task (required)
-        list_id: the id of the task list (required)
-        name: new name for the step (optional)
-        is_checked: True to mark as completed, False to uncheck (optional)
+    Only the arguments given change.
 
-    returns:
-        dictionary containing the updated step
+    Returns a dictionary with the updated step.
     '''
     try:
         if not item_id or not item_id.strip():
-            return format_error(ValueError('item_id is required'))
+            raise tool_error(ValueError('item_id is required'))
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
         if name is None and is_checked is None:
-            return format_error(ValueError('at least one of name or is_checked must be provided'))
+            raise tool_error(ValueError('at least one of name or is_checked must be provided'))
 
         with get_client() as client:
             item = client.update_checklist_item(
@@ -984,29 +1006,25 @@ def update_step(
             })
     except (GraphAPIError, ValueError) as e:
         logger.error(f'error updating step {item_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def complete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=ADDS)
+def complete_step(item_id: StepId, task_id: StepTaskId, list_id: TaskListId) -> Dict[str, Any]:
     '''
-    mark a step (checklist item) as completed.
+    Check a step off.
 
-    args:
-        item_id: the id of the step (required)
-        task_id: the id of the parent task (required)
-        list_id: the id of the task list (required)
+    Use this when the user says a step is done, not delete_step.
 
-    returns:
-        dictionary containing the completed step
+    Returns a dictionary with the completed step.
     '''
     try:
         if not item_id or not item_id.strip():
-            return format_error(ValueError('item_id is required'))
+            raise tool_error(ValueError('item_id is required'))
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             item = client.complete_checklist_item(list_id.strip(), task_id.strip(), item_id.strip())
@@ -1016,29 +1034,25 @@ def complete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
             }, message='step marked as completed')
     except GraphAPIError as e:
         logger.error(f'error completing step {item_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
-@mcp.tool
-def delete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
+@mcp.tool(annotations=CHANGES)
+def delete_step(item_id: StepId, task_id: StepTaskId, list_id: TaskListId) -> Dict[str, Any]:
     '''
-    delete a step (checklist item) permanently.
+    Delete a step from a task's checklist permanently. This can't be undone.
 
-    args:
-        item_id: the id of the step (required)
-        task_id: the id of the parent task (required)
-        list_id: the id of the task list (required)
+    To check it off instead, use complete_step. Only when the user asks to delete it.
 
-    returns:
-        dictionary confirming deletion
+    Returns a dictionary confirming the deletion.
     '''
     try:
         if not item_id or not item_id.strip():
-            return format_error(ValueError('item_id is required'))
+            raise tool_error(ValueError('item_id is required'))
         if not task_id or not task_id.strip():
-            return format_error(ValueError('task_id is required'))
+            raise tool_error(ValueError('task_id is required'))
         if not list_id or not list_id.strip():
-            return format_error(ValueError('list_id is required'))
+            raise tool_error(ValueError('list_id is required'))
 
         with get_client() as client:
             client.delete_checklist_item(list_id.strip(), task_id.strip(), item_id.strip())
@@ -1048,7 +1062,7 @@ def delete_step(item_id: str, task_id: str, list_id: str) -> Dict[str, Any]:
             }, message='step deleted successfully')
     except GraphAPIError as e:
         logger.error(f'error deleting step {item_id}: {e}')
-        return format_error(e)
+        raise tool_error(e)
 
 
 # =============================================================================

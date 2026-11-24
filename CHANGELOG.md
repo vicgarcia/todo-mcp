@@ -1,3 +1,15 @@
+## v3.1.0
+
+**added:**
+- server instructions: how lists, tasks and steps relate, which tool answers which question, and when deleting is allowed
+- annotations on every tool: read-only, adds (not destructive) or changes (destructive), none open world
+- fuller tool descriptions: when to use each tool, how it relates to the others, and what it returns
+- a schema description for every argument, declared with `Field` instead of docstring `args:` blocks, so it no longer depends on the fastmcp version
+
+**changed:**
+- a failed call is a tool error (`isError: true`) instead of a normal result holding `{"error": ..., "success": false}`; successful results are unchanged
+- requires `fastmcp>=3.0.0` and declares `pydantic>=2.0`; the lockfile moves to fastmcp 4, as installed
+
 ## v3.0.0
 
 **breaking:**
