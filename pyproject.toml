@@ -1,11 +1,12 @@
 [project]
 name = "todo-mcp"
-version = "3.0.0"
+version = "3.1.0"
 description = "MCP server for Microsoft Todo with direct Graph API access"
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=2.0.0",
+    "fastmcp>=3.0.0",
     "httpx>=0.27.0",
+    "pydantic>=2.0",
     "python-dateutil>=2.8.0",
 ]
 

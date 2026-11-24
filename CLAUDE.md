@@ -17,7 +17,8 @@ todo-mcp/
 │       ├── graph_client.py   # GraphClient class for Microsoft Graph API
 │       └── schema.py         # Dataclasses (TodoList, TodoTask, etc.)
 ├── tests/
-│   └── test_due_today.py     # date tools, paging, retries, connection sharing
+│   ├── test_due_today.py     # date tools, paging, retries, connection sharing
+│   └── test_tool_metadata.py # annotations, argument descriptions, instructions
 ├── pyproject.toml            # Package metadata and dependencies
 ├── README.md                 # User-facing documentation
 ├── CLAUDE.md                 # This file
@@ -114,7 +115,9 @@ Verified bugs (tested 2026-03-17):
 - **OAuth functions** - get_auth_url, get_token_from_code, bootstrap_token, run_auth_flow
 - **Argument parsing** - parse_args(), _HELP constant
 - **Helper functions** - parse_date, get_client, format_error, format_success
-- **MCP server + tools** - mcp = FastMCP(...), 17 @mcp.tool definitions
+- **MCP server + tools** - INSTRUCTIONS, annotation constants, shared argument types, mcp = FastMCP(..., instructions=INSTRUCTIONS), 17 @mcp.tool(annotations=...) definitions
+
+**What clients see.** Set in server.py, not left to a gateway: `INSTRUCTIONS` is passed as the FastMCP server `instructions` and names tools only by their real names; every tool has `ToolAnnotations` (`READ_ONLY`, `ADDS` = not destructive, `CHANGES` = destructive, all `openWorldHint=False`); every argument is `Annotated[..., Field(description=...)]`, so docstrings carry no `args:` block and the schema doesn't depend on the fastmcp version parsing docstrings. `tests/test_tool_metadata.py` enforces this.
 - **Entry point** - run(), if __name__ == '__main__'
 
 ### Entry Point Flow

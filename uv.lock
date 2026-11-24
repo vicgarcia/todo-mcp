@@ -1095,11 +1095,12 @@ wheels = [
 
 [[package]]
 name = "todo-mcp"
-version = "3.0.0"
+version = "3.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
+    { name = "pydantic" },
     { name = "python-dateutil" },
 ]
 
@@ -1110,8 +1111,9 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastmcp", specifier = ">=2.0.0" },
+    { name = "fastmcp", specifier = ">=3.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.0" },
 ]
